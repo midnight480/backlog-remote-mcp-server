@@ -24,6 +24,15 @@ import type {
 	OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { parseAllowedEmails, isAccessDenied } from "../../../core/create-server";
+import {
+	approvalKey,
+	approvedClientsCookie,
+	clearCsrfCookie,
+	isClientApproved,
+	issueCsrfToken,
+	renderApprovalDialog,
+	validateCsrfToken,
+} from "./consent";
 import { DynamoAuthStore } from "./store";
 import { createPkcePair, type UpstreamClient } from "./upstream";
 
@@ -48,6 +57,10 @@ export interface ProviderConfig {
 	upstream: UpstreamClient;
 	/** ALLOWED_EMAILS の生の値。空なら制限なし */
 	allowedEmails?: string;
+	/** 同意画面の CSRF / 承認済みクライアント Cookie に使う署名鍵 */
+	cookieSecret: string;
+	/** 同意画面に表示するサーバ名 */
+	serverName: string;
 }
 
 class DynamoClientsStore implements OAuthRegisteredClientsStore {
@@ -77,12 +90,62 @@ export class DynamoOAuthProvider implements OAuthServerProvider {
 		this.clientsStore = new DynamoClientsStore(config.store);
 	}
 
-	/** 手順1: 上流 IdP へリダイレクトする */
+	/**
+	 * 手順1: 同意を取ってから上流 IdP へリダイレクトする。
+	 *
+	 * SDK は client_id と redirect_uri を検証したうえでこのメソッドを呼ぶため、
+	 * ここで表示する値は検証済み。未承認なら同意画面を出し、フォームは同じ
+	 * /authorize へ POST し直す (SDK は POST も受け付け、req.body から
+	 * パラメータを読む)。2 周目は CSRF を検証して承認 Cookie を発行し、
+	 * そのまま上流へ進む。
+	 */
 	async authorize(
 		client: OAuthClientInformationFull,
 		params: AuthorizationParams,
 		res: Response,
 	): Promise<void> {
+		const req = res.req;
+		const key = approvalKey(client.client_id, params.redirectUri);
+		const extraHeaders: string[] = [];
+
+		if (!isClientApproved(req, key, this.config.cookieSecret)) {
+			if (req.method === "POST") {
+				// 同意画面からの POST。CSRF を検証して承認を記録する。
+				if (!validateCsrfToken(req)) {
+					res.status(400).json({
+						error: "invalid_request",
+						error_description: "CSRF token missing or mismatched",
+					});
+					return;
+				}
+				extraHeaders.push(
+					approvedClientsCookie(req, key, this.config.cookieSecret),
+					clearCsrfCookie,
+				);
+			} else {
+				// 未承認の GET。同意画面を出して終わる (上流へは進まない)。
+				const { token, setCookie } = issueCsrfToken();
+				res.setHeader("Set-Cookie", setCookie);
+				res.setHeader("X-Frame-Options", "DENY");
+				res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+				renderApprovalDialog(res, {
+					serverName: this.config.serverName,
+					clientName: client.client_name,
+					redirectUri: params.redirectUri,
+					// 元のクエリをそのまま hidden で持ち回す。SDK が POST 側でも
+					// 同じ検証を行うため、ここで値を作り替えない。
+					params: Object.fromEntries(
+						Object.entries(req.query).filter(
+							(e): e is [string, string] => typeof e[1] === "string",
+						),
+					),
+					csrfToken: token,
+					actionPath: req.originalUrl.split("?")[0],
+				});
+				return;
+			}
+		}
+
 		const state = randomToken();
 		const { verifier, challenge } = createPkcePair();
 
@@ -98,6 +161,9 @@ export class DynamoOAuthProvider implements OAuthServerProvider {
 			expiresAt: now() + UPSTREAM_STATE_TTL_SEC,
 		});
 
+		if (extraHeaders.length > 0) {
+			res.setHeader("Set-Cookie", extraHeaders);
+		}
 		res.redirect(this.config.upstream.buildAuthorizeUrl(state, challenge));
 	}
 

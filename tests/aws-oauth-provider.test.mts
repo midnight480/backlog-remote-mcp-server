@@ -40,7 +40,24 @@ const throws = async (n: string, fn: () => Promise<any>, want: RegExp) => {
   try { await fn(); ok(n, false, "  (例外が出なかった)"); }
   catch (e: any) { ok(n, want.test(e.message), want.test(e.message) ? "" : `  msg=${e.message}`); } };
 
-const prov = new DynamoOAuthProvider({ store: store as any, upstream, allowedEmails: '["ok@example.com"]' });
+const COOKIE_SECRET = "test-cookie-secret";
+const prov = new DynamoOAuthProvider({ store: store as any, upstream,
+  allowedEmails: '["ok@example.com"]', cookieSecret: COOKIE_SECRET, serverName: "Test" });
+
+// authorize() は同意画面を挟むようになったため、承認済み Cookie を持つ
+// リクエストを模して上流リダイレクトまで進める。同意フロー自体の検証は
+// tests/aws-consent.test.mts が行う。
+const { approvalKey, approvedClientsCookie } = await import("../src/platforms/aws/auth/consent.ts");
+const approvedRes = (clientId: string, redirectUri: string) => {
+  const cookie = approvedClientsCookie({ headers: {} } as any, approvalKey(clientId, redirectUri), COOKIE_SECRET).split(";")[0];
+  let captured = "";
+  return {
+    req: { headers: { cookie }, method: "GET", query: {}, body: {}, originalUrl: "/authorize" },
+    setHeader: () => {}, status: () => ({ json: () => {} }),
+    redirect: (u: string) => { captured = u; },
+    get url() { return captured; },
+  } as any;
+};
 
 // --- クライアント登録 (DCR) ---
 const client = await (prov.clientsStore as any).registerClient({
@@ -53,8 +70,10 @@ ok("DCR: 保存され取得できる", (await prov.clientsStore.getClient(client
 const verifier = randomBytes(32).toString("base64url");
 const challenge = createHash("sha256").update(verifier).digest("base64url");
 let redirectedTo = "";
+const aRes = approvedRes(client.client_id, "https://client.example.com/cb");
 await prov.authorize(client, { redirectUri: "https://client.example.com/cb", codeChallenge: challenge,
-  scopes: ["openid"], state: "mcp-state" } as any, { redirect: (u: string) => { redirectedTo = u; } } as any);
+  scopes: ["openid"], state: "mcp-state" } as any, aRes);
+redirectedTo = aRes.url;
 const uurl = new URL(redirectedTo);
 ok("authorize: 上流の /oauth2/authorize へ", uurl.pathname === "/oauth2/authorize");
 ok("authorize: PKCE S256 を送る", uurl.searchParams.get("code_challenge_method") === "S256");
@@ -80,9 +99,12 @@ const stillThere = await store.peekAuthCode(authCode);
 ok("PKCE 失敗後もコードは残らない(使い捨て)", stillThere === undefined);
 
 // --- 正常なトークン交換 ---
-const st2 = await (async () => { let u = ""; await prov.authorize(client,
-  { redirectUri: "https://client.example.com/cb", codeChallenge: challenge, scopes: ["openid"] } as any,
-  { redirect: (x: string) => { u = x; } } as any); return new URL(u).searchParams.get("state")!; })();
+const mkState = async (p: any, cl: any = client, uri = "https://client.example.com/cb") => {
+  const r = approvedRes(cl.client_id, uri);
+  await p.authorize(cl, { redirectUri: uri, codeChallenge: challenge, scopes: ["openid"], state: "s" } as any, r);
+  return new URL(r.url).searchParams.get("state")!;
+};
+const st2 = await mkState(prov);
 const code2 = new URL(await prov.handleUpstreamCallback("c", st2)).searchParams.get("code")!;
 const tokens = await prov.exchangeAuthorizationCode(client, code2, verifier, "https://client.example.com/cb");
 ok("トークン発行", !!tokens.access_token && !!tokens.refresh_token && tokens.token_type === "bearer");
@@ -94,9 +116,7 @@ ok("clientId が一致", info.clientId === client.client_id);
 await throws("認可コード再利用は拒否", () => prov.exchangeAuthorizationCode(client, code2, verifier, "https://client.example.com/cb"), /Invalid authorization code/);
 
 // --- redirect_uri 不一致 ---
-const st3 = await (async () => { let u = ""; await prov.authorize(client,
-  { redirectUri: "https://client.example.com/cb", codeChallenge: challenge, scopes: ["openid"] } as any,
-  { redirect: (x: string) => { u = x; } } as any); return new URL(u).searchParams.get("state")!; })();
+const st3 = await mkState(prov);
 const code3 = new URL(await prov.handleUpstreamCallback("c", st3)).searchParams.get("code")!;
 await throws("redirect_uri 不一致は拒否", () => prov.exchangeAuthorizationCode(client, code3, verifier, "https://evil.example.com/cb"), /redirect_uri/);
 
@@ -115,10 +135,9 @@ await prov.revokeToken(client, { token: refreshed.access_token } as any);
 ok("自分のトークンは失効できる", !(await store.getToken(refreshed.access_token)));
 
 // --- 許可リスト外のユーザー ---
-const prov2 = new DynamoOAuthProvider({ store: store as any, upstream, allowedEmails: '["someone-else@example.com"]' });
-const st4 = await (async () => { let u = ""; await prov2.authorize(client,
-  { redirectUri: "https://client.example.com/cb", codeChallenge: challenge, scopes: ["openid"], state: "s4" } as any,
-  { redirect: (x: string) => { u = x; } } as any); return new URL(u).searchParams.get("state")!; })();
+const prov2 = new DynamoOAuthProvider({ store: store as any, upstream,
+  allowedEmails: '["someone-else@example.com"]', cookieSecret: COOKIE_SECRET, serverName: "Test" });
+const st4 = await mkState(prov2);
 const denied = new URL(await prov2.handleUpstreamCallback("c", st4));
 ok("許可外は access_denied で戻す", denied.searchParams.get("error") === "access_denied");
 ok("許可外はコードを発行しない", !denied.searchParams.get("code"));

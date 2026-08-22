@@ -189,6 +189,16 @@ Resources:
       Name: !Sub "${AWS::StackName}/upstream-client-secret"
       SecretString: !GetAtt UserPoolClient.ClientSecret
 
+  # 同意画面の CSRF / 承認済みクライアント Cookie の署名鍵。
+  # 値は CloudFormation が生成するので、運用者が用意する必要はない。
+  CookieSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${AWS::StackName}/cookie-secret"
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+
   BacklogSpacesSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -263,6 +273,7 @@ Resources:
           # 値そのものではなく ARN を渡し、実行時に取得する
           BACKLOG_SPACES_SECRET_ARN: !Ref BacklogSpacesSecret
           UPSTREAM_CLIENT_SECRET_ARN: !Ref UpstreamClientSecret
+          COOKIE_SECRET_ARN: !Ref CookieSecret
           # 許可メールは機密ではないため環境変数のままでよい
           ALLOWED_EMAILS: !Ref AllowedEmails
           AUTH_TABLE_NAME: !Ref AuthTable
@@ -279,6 +290,8 @@ Resources:
             SecretArn: !Ref UpstreamClientSecret
         - AWSSecretsManagerGetSecretValuePolicy:
             SecretArn: !Ref BacklogSpacesSecret
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref CookieSecret
       # Lambda Function URL は使わない。WWW-Authenticate を
       # x-amzn-Remapped-www-authenticate に書き換えてしまい、MCP クライアントの
       # 保護リソース探索 (RFC 9728) が働かなくなるため。API Gateway HTTP API は

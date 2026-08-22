@@ -20,7 +20,9 @@
 		"aws:validate": "sam validate --template infra/aws/template.yaml --lint",
 		"aws:secrets:push": "node scripts/aws-push-secrets.mjs",
 		"aws:secrets:dry-run": "node scripts/aws-push-secrets.mjs --dry-run",
-		"aws:request-cert": "node scripts/aws-request-cert.mjs"
+		"aws:request-cert": "node scripts/aws-request-cert.mjs",
+		"test:aws-consent": "tsx tests/aws-consent.test.mts",
+		"test": "npm run test:aws-oauth && npm run test:aws-consent"
 	},
 	"dependencies": {
 		"@aws-sdk/client-dynamodb": "^3.1116.0",

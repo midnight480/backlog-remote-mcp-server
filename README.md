@@ -260,6 +260,7 @@ All tools accept an optional `space` parameter:
 - **Double-check**: Access Policy (Cloudflare side) + in-app allowlist (Worker side)
 - **API Key Protection**: Backlog API keys are stored in Cloudflare Secrets and never exposed to clients
 - **PKCE + CSRF**: OAuth flow is protected with PKCE (S256) and CSRF tokens
+- **Client consent**: Dynamic Client Registration is open to anyone, so authorization is gated behind a consent screen that names the client and its redirect target and requires a CSRF-protected approval. Approvals are keyed on `client_id` + `redirect_uri`, so re-registering with a different redirect target cannot inherit a prior approval
 - **Write guard**: Spaces marked `readOnly: true` reject every non-GET call. The check lives in the API-call layer of `src/core/backlog-client.ts`, so it does not depend on individual tool implementations
 - **Configuration isolation**: All environment-specific values live in `.dev.vars` (untracked). The repository contains placeholders only
 

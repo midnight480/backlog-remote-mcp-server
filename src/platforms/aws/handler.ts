@@ -6,6 +6,7 @@
 // 初期化して以降は使い回す (実行環境が再利用される限り 1 回で済む)。
 
 import serverlessExpress from "serverless-http";
+import { SERVER_NAME } from "../../core/create-server";
 import { createApp } from "./app";
 import { DynamoOAuthProvider } from "./auth/provider";
 import { DynamoAuthStore } from "./auth/store";
@@ -23,14 +24,17 @@ type ServerlessHandler = ReturnType<typeof serverlessExpress>;
 async function build(): Promise<ServerlessHandler> {
 	const issuerUrl = new URL(required("ISSUER_URL"));
 
-	const [spacesConfig, upstreamClientSecret] = await Promise.all([
+	const [spacesConfig, upstreamClientSecret, cookieSecret] = await Promise.all([
 		getSecret(required("BACKLOG_SPACES_SECRET_ARN")),
 		getSecret(required("UPSTREAM_CLIENT_SECRET_ARN")),
+		getSecret(required("COOKIE_SECRET_ARN")),
 	]);
 
 	const provider = new DynamoOAuthProvider({
 		store: new DynamoAuthStore(required("AUTH_TABLE_NAME")),
 		allowedEmails: process.env.ALLOWED_EMAILS,
+		cookieSecret,
+		serverName: SERVER_NAME,
 		upstream: createUpstreamClient({
 			domain: required("UPSTREAM_DOMAIN"),
 			clientId: required("UPSTREAM_CLIENT_ID"),

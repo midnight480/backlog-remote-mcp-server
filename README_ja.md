@@ -259,6 +259,7 @@ Inspector画面で `https://<MCP_HOSTNAME>/mcp` を入力し、OAuth Settingsか
 - **二重チェック**: Access Policy (Cloudflare側) + アプリケーション内allowlist (Worker側)
 - **APIキー保護**: Backlog APIキーはCloudflare Secretsに格納。クライアントには一切露出しない
 - **PKCE + CSRF**: OAuth flowはPKCE (S256) とCSRFトークンで保護
+- **クライアント同意**: 動的クライアント登録 (DCR) は誰でも叩けるため、認可の前に同意画面でクライアント名とリダイレクト先を提示し、CSRF 保護付きの承認を要求します。承認は `client_id` + `redirect_uri` の組で記録するため、リダイレクト先を差し替えた再登録は過去の承認を引き継げません
 - **書き込みガード**: `readOnly: true` のスペースはGET以外を拒否。判定は `src/core/backlog-client.ts` のAPI呼び出し層で行うため、個々のツール実装に依存しません
 - **設定の分離**: 環境固有の値はすべて `.dev.vars` (Git管理外) に集約。リポジトリにはプレースホルダのみ
 

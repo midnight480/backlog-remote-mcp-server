@@ -14,6 +14,7 @@
 | 上流 IdP | Amazon Cognito User Pool |
 | 状態保存 | DynamoDB (TTL で自動失効) |
 | シークレット | AWS Secrets Manager |
+| 同意画面の署名鍵 | Secrets Manager (CloudFormation が自動生成) |
 | IaC | AWS SAM |
 | 設定ファイル | `infra/aws/params.yaml` |
 
@@ -211,6 +212,7 @@ ACM 証明書はスタック外なので残ります。DNS レコードも手動
 | `Dynamic require of "http" is not supported` | ESM でバンドルされています。`Format: cjs` を確認してください |
 | MCP が 406 `Client must accept both application/json and text/event-stream` | `serverless-http` の擬似 Node リクエストからヘッダが読めていません。`web-bridge.ts` 経由で Web 標準の Request を組み立てる実装になっているか確認してください |
 | `invalid_client_secret` | Cognito アプリクライアントの secret が Lambda に渡っていません。Secrets Manager の `<stack>/upstream-client-secret` を確認してください |
+| 同意画面が毎回出る | 承認は `__Host-APPROVED_CLIENTS` Cookie に記録されます。Cookie を消したか、MCP クライアントが毎回新しい `client_id` を動的登録している可能性があります |
 | ログイン後に `access_denied` | `AllowedEmails` にそのアドレスが含まれていません |
 | `redirect_uri_mismatch` (Google) | Google Cloud Console の承認済みリダイレクト URI に Cognito の `/oauth2/idpresponse` が登録されていません |
 | `Space "..." is configured as read-only` | そのスペースに `readOnly: true` が設定されています |
