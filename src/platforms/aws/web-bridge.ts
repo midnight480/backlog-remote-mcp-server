@@ -7,6 +7,7 @@
 // WebStandardStreamableHTTPServerTransport を直接使う。
 
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { Request as ExpressRequest, Response as ExpressResponse } from "express";
 
 /** Express のリクエストから Web 標準の Request を組み立てる */
@@ -51,12 +52,19 @@ export async function writeWebResponse(
 		return;
 	}
 
-	// SSE の場合はストリームのまま流す
+	// SSE の場合はストリームのまま流す。
+	// pipeline は完了・失敗のどちらでも必ず settle するため、Lambda で
+	// 「解決されない Promise」による Runtime.NodeJsExit を起こさない。
+	// (イベントリスナを手書きすると、クライアント切断などの経路で
+	//  resolve されないケースが残る)
 	const nodeStream = Readable.fromWeb(webRes.body as Parameters<typeof Readable.fromWeb>[0]);
-	nodeStream.pipe(res);
-	await new Promise<void>((resolve) => {
-		nodeStream.on("end", resolve);
-		nodeStream.on("error", () => resolve());
-		res.on("close", () => resolve());
-	});
+	try {
+		await pipeline(nodeStream, res);
+	} catch (e) {
+		// クライアント側の切断は異常ではない
+		const code = (e as NodeJS.ErrnoException | undefined)?.code;
+		if (code !== "ERR_STREAM_PREMATURE_CLOSE" && code !== "EPIPE") {
+			console.error("failed to write response body:", e);
+		}
+	}
 }

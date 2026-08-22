@@ -28,6 +28,89 @@ English | [日本語](README_ja.md)
 
 The tools and their behavior are identical on both.
 
+## Estimated Cost
+
+> **Note**
+> **These are reference figures only.** Actual charges vary by region, usage, and
+> pricing changes. Use the official calculators for real estimates.
+>
+> - [Cloudflare Zero Trust pricing](https://www.cloudflare.com/plans/zero-trust-services/)
+> - [Cloudflare Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
+> - [AWS Pricing Calculator](https://calculator.aws/#/addService)
+
+### Assumptions
+
+Personal use or a small team.
+
+| Item | Assumption |
+|---|---|
+| Users | 1–5 |
+| MCP requests | ~3,000 / month |
+| Backlog spaces | 3 |
+| Log retention | 30 days |
+
+### Fixed costs (charged even when idle)
+
+| | Cloudflare | AWS |
+|---|---|---|
+| Runtime | $0 (Free plan works) | $0 |
+| Auth platform | $0 (Zero Trust free up to 50 users) | $0 (within Cognito free tier) |
+| Secrets | $0 (Workers Secrets are free) | **~$0.80** (2 Secrets Manager secrets) |
+| Certificates | $0 | $0 (public ACM certificates are free) |
+| **Total** | **$0** | **~$1/month** |
+
+**On AWS the fixed cost is essentially just Secrets Manager**, which bills per secret per
+month whether or not it is used. Cloudflare has no fixed cost because Workers Secrets are
+free.
+
+### What is metered
+
+| | Cloudflare | AWS |
+|---|---|---|
+| Requests | Workers | Lambda + API Gateway |
+| State storage | Durable Objects + KV | DynamoDB |
+| Logs | Workers Logs | CloudWatch Logs |
+
+At the assumed volume (~3,000 requests/month) **both stay within the free allowances**.
+API Gateway HTTP API has no perpetual free tier, so AWS accrues a small charge
+proportional to request count (roughly $1 per million requests).
+
+### Thresholds worth knowing
+
+**Cloudflare — the 50-user line for Zero Trust**
+
+Zero Trust (Access) is **free for up to 50 users**. Beyond that you move to a paid plan
+billed **per user per month**. This is the cost that scales with headcount.
+
+**Cloudflare — Workers Free plan limits**
+
+This project uses SQLite-backed Durable Objects, which
+[are available on the Workers Free plan](https://developers.cloudflare.com/durable-objects/platform/pricing/).
+The Free plan does cap daily requests and other usage, and exceeding a cap returns errors.
+For sustained use consider Workers Paid (from $5/month).
+
+**AWS — the Lambda free tier is perpetual**
+
+Lambda includes a perpetual free tier of 1M requests and 400,000 GB-seconds per month.
+**API Gateway and Secrets Manager have no perpetual free tier.**
+
+**AWS — CloudWatch Logs**
+
+Logs are billed on ingestion volume. This template manages retention explicitly via
+`LogRetentionDays` (default 30), so logs do not accumulate indefinitely.
+
+### Summary
+
+| Scale | Cloudflare | AWS |
+|---|---|---|
+| Personal | roughly $0 | ~$1/month |
+| Tens of users (≤50) | roughly $0–$5 | $1 to a few dollars/month |
+| 51+ users | Zero Trust switches to per-user billing | depends on the Cognito MAU free tier |
+
+**For small teams Cloudflare is cheaper and has no fixed cost.** AWS carries the Secrets
+Manager fixed cost but is worth it if you want to consolidate into an existing AWS
+footprint or govern access through IAM.
+
 ## Setup
 
 ### 0. Prerequisites
@@ -36,7 +119,7 @@ Node.js 20 or later.
 
 ```bash
 git clone <this-repo>
-cd my-own-backlog-remote-mcp-server
+cd backlog-remote-mcp-server
 npm install
 ```
 
@@ -56,6 +139,14 @@ Additional tools depend on the deployment target:
 3. Pick a deployment target
    - **[Cloudflare Workers](docs/deploy-cloudflare.md)**
    - **[AWS](docs/deploy-aws.md)**
+
+### If something goes wrong
+
+Troubleshooting sections live at the end of each deployment guide.
+
+- [Cloudflare](docs/deploy-cloudflare.md#troubleshooting)
+- [AWS](docs/deploy-aws.md#troubleshooting)
+
 
 ## Architecture
 

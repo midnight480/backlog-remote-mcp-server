@@ -52,6 +52,10 @@ async function build(): Promise<ServerlessHandler> {
 let cached: Promise<ServerlessHandler> | undefined;
 
 export const handler = async (event: unknown, context: unknown) => {
+	// 保留中のタイマーやソケットで実行が延びないようにする
+	const ctx = context as { callbackWaitsForEmptyEventLoop?: boolean } | undefined;
+	if (ctx) ctx.callbackWaitsForEmptyEventLoop = false;
+
 	if (!cached) {
 		cached = build().catch((e) => {
 			// 初期化失敗をキャッシュに残さない (次の呼び出しで再試行できるように)

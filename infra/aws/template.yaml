@@ -25,6 +25,13 @@ Parameters:
     NoEcho: true
     Default: ""
     Description: Google OAuth 2.0 クライアントシークレット
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: >
+      CloudWatch Logs の保持期間 (日)。Lambda が自動作成するロググループは
+      既定で無期限に残るため、明示的に管理する。
   ApiDomainName:
     Type: String
     Default: ""
@@ -234,9 +241,20 @@ Resources:
         HostedZoneId: !GetAtt ApiDomain.RegionalHostedZoneId
         EvaluateTargetHealth: false
 
+  # Lambda に自動作成させると保持期間が無期限になり、スタックを削除しても
+  # ロググループが残る。CloudFormation に管理させることで両方を解決する。
+  McpFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-mcp"
+      RetentionInDays: !Ref LogRetentionDays
+
   McpFunction:
     Type: AWS::Serverless::Function
+    # ロググループ名を固定するために関数名を固定する
+    DependsOn: McpFunctionLogGroup
     Properties:
+      FunctionName: !Sub "${AWS::StackName}-mcp"
       # esbuild ビルダーが esbuild と依存関係を解決できるようリポジトリルートを指す
       CodeUri: ../../
       Handler: handler.handler
@@ -313,6 +331,9 @@ Outputs:
     Value: !Ref UserPool
   UserPoolClientId:
     Value: !Ref UserPoolClient
+  LogGroupName:
+    Description: CloudWatch Logs のロググループ
+    Value: !Ref McpFunctionLogGroup
   CognitoDomain:
     Value: !Sub "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
   GoogleRedirectUri:

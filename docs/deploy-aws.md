@@ -217,6 +217,7 @@ The ACM certificate lives outside the stack and remains. Remove DNS records manu
 | `redirect_uri_mismatch` (Google) | Cognito's `/oauth2/idpresponse` is not registered in the Google Cloud Console redirect URIs |
 | `Space "..." is configured as read-only` | That space has `readOnly: true` |
 | TLS error on the custom domain | Cloudflare DNS proxy is probably ON. Set it to DNS only |
+| `Runtime.NodeJsExit` in CloudWatch | Known issue. It occurs only on the paths that make an outbound `fetch` (`/callback` and the `tools/call` that reaches Backlog), and **the responses themselves are correct**. The likely cause is Node's built-in fetch (undici) keeping sockets alive across a Lambda freeze. Left unaddressed because the impact is log noise only |
 
 ---
 

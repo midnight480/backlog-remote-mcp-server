@@ -28,6 +28,88 @@ Backlog を MCP (Model Context Protocol) 経由で操作するリモートサー
 
 提供されるツールと挙動はどちらも同じです。
 
+## 概算コスト
+
+> **Note**
+> **あくまで参考値です。** 実際の料金はリージョン・利用量・料金改定で変わります。
+> 見積もりは各社の公式ツールで行ってください。
+>
+> - [Cloudflare Zero Trust の料金](https://www.cloudflare.com/plans/zero-trust-services/)
+> - [Cloudflare Workers の料金](https://developers.cloudflare.com/workers/platform/pricing/)
+> - [AWS Pricing Calculator](https://calculator.aws/#/addService)
+
+### 前提
+
+個人〜小規模チームでの利用を想定します。
+
+| 項目 | 想定 |
+|---|---|
+| 利用者 | 1〜5 名 |
+| MCP リクエスト | 月 3,000 回程度 |
+| Backlog スペース | 3 つ |
+| ログ保持 | 30 日 |
+
+### 固定費 (使わなくてもかかる)
+
+| | Cloudflare | AWS |
+|---|---|---|
+| 実行環境 | $0 (Free プランで可) | $0 |
+| 認証基盤 | $0 (Zero Trust 50 名まで無料) | $0 (Cognito 無料枠内) |
+| シークレット | $0 (Workers Secrets は無料) | **約 $0.80** (Secrets Manager × 2) |
+| 証明書 | $0 | $0 (ACM の公開証明書は無料) |
+| **合計** | **$0** | **約 $1/月** |
+
+**AWS 側の固定費はほぼ Secrets Manager だけです。** 1 シークレットあたり月額課金のため、
+使わなくても発生します。Cloudflare 側は Workers Secrets が無料なので固定費がありません。
+
+### 従量課金の主な対象
+
+| | Cloudflare | AWS |
+|---|---|---|
+| リクエスト | Workers | Lambda + API Gateway |
+| 状態保存 | Durable Objects + KV | DynamoDB |
+| ログ | Workers Logs | CloudWatch Logs |
+
+上記の想定 (月 3,000 リクエスト) であれば、**どちらも各サービスの無料枠に収まる**
+規模です。API Gateway HTTP API には恒久的な無料枠がないため、AWS 側は
+リクエスト数に比例してわずかに課金されます (100 万リクエストあたり $1 程度)。
+
+### 押さえておきたい分岐点
+
+**Cloudflare — Zero Trust の 50 名**
+
+Zero Trust (Access) は **50 ユーザーまで無料**です。51 名以上になると有料プランへ
+移行し、**ユーザー単位の月額課金**に切り替わります。人数が増えるほど費用が
+効いてくるのはこちらです。
+
+**Cloudflare — Workers Free プランの上限**
+
+本プロジェクトは SQLite バックエンドの Durable Objects を使っており、
+[Workers Free プランでも利用できます](https://developers.cloudflare.com/durable-objects/platform/pricing/)。
+ただし Free プランは 1 日あたりのリクエスト数などに上限があり、超えるとエラーになります。
+継続的に使うなら Workers Paid ($5/月〜) を検討してください。
+
+**AWS — Lambda の無料枠は恒久的**
+
+Lambda には月 100 万リクエスト / 40 万 GB 秒の恒久的な無料枠があります。
+一方 **API Gateway と Secrets Manager には恒久的な無料枠がありません**。
+
+**AWS — CloudWatch Logs**
+
+ログは取り込み量に対して課金されます。本テンプレートは保持期間を
+`LogRetentionDays` (既定 30 日) で明示的に管理しており、無期限に蓄積しません。
+
+### まとめ
+
+| 規模 | Cloudflare | AWS |
+|---|---|---|
+| 個人利用 | ほぼ $0 | 月 $1 程度 |
+| 数十名 (50 名以下) | ほぼ $0〜$5 | 月 $1〜数ドル |
+| 51 名以上 | Zero Trust がユーザー単位課金に | Cognito 無料枠 (MAU) 次第 |
+
+**少人数なら Cloudflare のほうが安く、固定費もありません。** AWS は Secrets Manager の
+固定費が乗りますが、既存の AWS 環境に寄せたい場合や IAM で統制したい場合には利点があります。
+
 ## セットアップ
 
 ### 0. 前提
@@ -36,7 +118,7 @@ Node.js 20 以上が必要です。
 
 ```bash
 git clone <this-repo>
-cd my-own-backlog-remote-mcp-server
+cd backlog-remote-mcp-server
 npm install
 ```
 
@@ -56,6 +138,14 @@ npm install
 3. デプロイ先を選ぶ
    - **[Cloudflare Workers 版](docs/deploy-cloudflare_ja.md)**
    - **[AWS 版](docs/deploy-aws_ja.md)**
+
+### 困ったときは
+
+トラブルシューティングは各デプロイ手順書の末尾にあります。
+
+- [Cloudflare 版](docs/deploy-cloudflare_ja.md#トラブルシューティング)
+- [AWS 版](docs/deploy-aws_ja.md#トラブルシューティング)
+
 
 ## アーキテクチャ
 

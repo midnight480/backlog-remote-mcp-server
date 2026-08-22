@@ -100,7 +100,16 @@ const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 function jwksFor(issuer: string) {
 	let jwks = jwksCache.get(issuer);
 	if (!jwks) {
-		jwks = createRemoteJWKSet(new URL(`${issuer.replace(/\/$/, "")}/.well-known/jwks.json`));
+		jwks = createRemoteJWKSet(new URL(`${issuer.replace(/\/$/, "")}/.well-known/jwks.json`), {
+			// jose の既定は AbortSignal.timeout(5000)。この 5 秒タイマーは fetch 完了後も
+			// イベントループに残り、Lambda が応答を返した後に保留状態で凍結されるため、
+			// ランタイムが Runtime.NodeJsExit として検出する。
+			// タイムアウト自体は必要なので短くして滞留時間を詰める。
+			timeoutDuration: 2000,
+			// JWKS は 10 分キャッシュする。実行環境が再利用される間は取得自体が起きない。
+			cacheMaxAge: 600_000,
+			cooldownDuration: 30_000,
+		});
 		jwksCache.set(issuer, jwks);
 	}
 	return jwks;

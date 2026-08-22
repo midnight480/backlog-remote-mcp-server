@@ -28,6 +28,11 @@ export interface AppConfig {
 
 export function createApp(config: AppConfig) {
 	const app = express();
+	// API Gateway が付ける X-Forwarded-For を信頼する。SDK の OAuth ハンドラは
+	// express-rate-limit を使っており、未設定だと毎回 ValidationError を出す。
+	// ホップ数を 1 に限定し、クライアントが XFF を偽装してレート制限を
+	// 回避できないようにする。
+	app.set("trust proxy", 1);
 	app.use(express.json({ limit: "4mb" }));
 	app.use(express.urlencoded({ extended: false }));
 
@@ -82,14 +87,15 @@ export function createApp(config: AppConfig) {
 			allowedEmails: config.allowedEmails,
 			userEmail,
 		});
-		// sessionIdGenerator: undefined でステートレスモードになる
 		const transport = new WebStandardStreamableHTTPServerTransport({
+			// sessionIdGenerator: undefined でステートレスモードになる
 			sessionIdGenerator: undefined,
-		});
-
-		res.on("close", () => {
-			transport.close().catch(() => {});
-			server.close().catch(() => {});
+			// 応答を SSE ではなく単発の JSON にする。
+			// 既定 (false) では応答ごとに SSE ストリームを開くが、
+			// ステートレス構成ではサーバ発の push が無いため利点がなく、
+			// Lambda ではストリームの後始末が残って Runtime.NodeJsExit
+			// (解決されない Promise) を招く。
+			enableJsonResponse: true,
 		});
 
 		try {
@@ -106,6 +112,15 @@ export function createApp(config: AppConfig) {
 					id: null,
 				});
 			}
+		} finally {
+			// レスポンスイベント (res の "close" など) に頼らず明示的に閉じる。
+			// serverless-http が渡す擬似レスポンスでは発火しないことがあり、
+			// transport / server の内部処理が保留のまま残って
+			// Runtime.NodeJsExit を招く。
+			// enableJsonResponse: true でボディは書き切られているため、
+			// ここで閉じても応答は欠けない。
+			await transport.close().catch(() => {});
+			await server.close().catch(() => {});
 		}
 	});
 

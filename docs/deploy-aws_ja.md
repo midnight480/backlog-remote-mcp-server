@@ -215,6 +215,7 @@ ACM 証明書はスタック外なので残ります。DNS レコードも手動
 | `redirect_uri_mismatch` (Google) | Google Cloud Console の承認済みリダイレクト URI に Cognito の `/oauth2/idpresponse` が登録されていません |
 | `Space "..." is configured as read-only` | そのスペースに `readOnly: true` が設定されています |
 | カスタムドメインで TLS エラー | Cloudflare DNS の Proxy が ON になっていませんか。DNS only にしてください |
+| CloudWatch に `Runtime.NodeJsExit` が出る | 既知の問題です。外部への `fetch` を行う経路 (`/callback` と Backlog を呼ぶ `tools/call`) でのみ発生し、**応答自体は正常**です。Node 組み込み fetch (undici) の keep-alive ソケットが Lambda の凍結と噛み合わないことが原因と見ています。実害はログノイズのみのため未対応です |
 
 ---
 
