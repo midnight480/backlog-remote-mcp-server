@@ -1,0 +1,49 @@
+{
+	"name": "backlog-remote-mcp-server",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-04-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"migrations": [
+		{
+			"new_sqlite_classes": ["BacklogMCP"],
+			"tag": "v1"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "BacklogMCP",
+				"name": "MCP_OBJECT"
+			}
+		]
+	},
+	"kv_namespaces": [
+		{
+			"binding": "OAUTH_KV",
+			"id": "<YOUR_KV_NAMESPACE_ID>"
+		}
+	],
+	"routes": [
+		{
+			"pattern": "backlog-remote-mcp-server.midnight480.com",
+			"custom_domain": true
+		}
+	],
+	"observability": {
+		"enabled": true
+	},
+	"dev": {
+		"port": 8788
+	},
+	"secrets": {
+		"required": [
+			"ACCESS_CLIENT_ID",
+			"ACCESS_CLIENT_SECRET",
+			"ACCESS_TOKEN_URL",
+			"ACCESS_AUTHORIZATION_URL",
+			"ACCESS_JWKS_URL",
+			"COOKIE_ENCRYPTION_KEY",
+			"BACKLOG_SPACES_CONFIG"
+		]
+	}
+}

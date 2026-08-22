@@ -1,0 +1,8 @@
+ACCESS_CLIENT_ID=your-local-client-id
+ACCESS_CLIENT_SECRET=your-local-client-secret
+ACCESS_TOKEN_URL=https://your-team.cloudflareaccess.com/cdn-cgi/access/sso/oidc/xxx/token
+ACCESS_AUTHORIZATION_URL=https://your-team.cloudflareaccess.com/cdn-cgi/access/sso/oidc/xxx/authorization
+ACCESS_JWKS_URL=https://your-team.cloudflareaccess.com/cdn-cgi/access/sso/oidc/xxx/jwks
+COOKIE_ENCRYPTION_KEY=your-random-hex-string
+ALLOWED_EMAILS=["your-email@gmail.com"]
+BACKLOG_SPACES_CONFIG={"spaces":[{"name":"DEV","domain":"dev.backlog.com","apiKey":"xxx"}],"defaultSpace":"DEV"}
