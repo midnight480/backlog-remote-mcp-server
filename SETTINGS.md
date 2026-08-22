@@ -40,25 +40,47 @@ If you have multiple spaces, repeat the above for each one. Then format them int
       "apiKey": "apikey-for-work-space"
     },
     {
-      "name": "PERSONAL",
-      "domain": "your-personal.backlog.com",
-      "apiKey": "apikey-for-personal-space"
+      "name": "SHARED",
+      "domain": "shared.backlog.jp",
+      "apiKey": "apikey-for-shared-space",
+      "readOnly": true
     }
   ],
   "defaultSpace": "WORK"
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `name` | A label you choose. Used as the `space` parameter in MCP tool calls |
-| `domain` | Your Backlog space domain (e.g., `your-space.backlog.com` or `your-space.backlog.jp`) |
-| `apiKey` | The API key generated above |
-| `defaultSpace` | Which space to use when `space` parameter is omitted |
+| Field | Required | Description |
+|-------|:---:|-------------|
+| `name` | ✅ | A label you choose. Used as the `space` parameter in MCP tool calls. Matching is case-insensitive |
+| `domain` | ✅ | Your Backlog space domain (e.g., `your-space.backlog.com` or `your-space.backlog.jp`). No scheme |
+| `apiKey` | ✅ | The API key generated above |
+| `readOnly` | | When `true`, **all non-GET API calls are rejected**, guarding shared spaces against accidental writes and deletes |
+| `defaultSpace` | ✅ | Which space to use when the `space` parameter is omitted. Must match a `name` in `spaces` |
+
+Set this in `.dev.vars` as a single-line JSON value:
+
+```
+BACKLOG_SPACES_CONFIG={"spaces":[{"name":"WORK","domain":"your-company.backlog.com","apiKey":"xxx"},{"name":"SHARED","domain":"shared.backlog.jp","apiKey":"yyy","readOnly":true}],"defaultSpace":"WORK"}
+```
+
+### When to use readOnly
+
+The tool set includes destructive operations such as `add_issue`, `update_issue`, `delete_issue`, and `delete_project`, and the caller is an LLM. When an ambiguous instruction is aimed at the wrong space, `readOnly: true` is the backstop.
+
+The check lives in the API-call layer of `src/backlog-client.ts`, so it does not depend on individual tool implementations and automatically covers tools added later. Rejection happens before any request reaches the Backlog API:
+
+```
+Space "SHARED" is configured as read-only. Refusing POST /issues.
+Use list_spaces to see which spaces allow writes.
+```
+
+Use the `list_spaces` tool to see the status of each space.
 
 ### Important Notes
 
-- API keys grant full access to the Backlog space on behalf of the key owner
+- API keys grant full access to the Backlog space on behalf of the key owner. `readOnly: true` is a guard inside this MCP server; it does not restrict the key itself
+- For spaces that need no writes, issue a permission-restricted key in Backlog *and* set `readOnly: true`
 - Keep keys confidential. They are stored as Cloudflare Secrets and never exposed to MCP clients
 - If a key is compromised, revoke it immediately from Backlog Personal Settings → API
 
@@ -186,16 +208,22 @@ Use Microsoft Entra ID (formerly Azure AD) as the authentication provider via Cl
 ### Step 4.2: Create Access SaaS Application
 
 1. Go to **Zero Trust** → **Access controls** → **Applications**
-2. Click **Create new application** → **SaaS application**
+2. Click **Create new application** → **SaaS applications** tab → **OpenID Connect (OIDC)**
 3. Configure:
    - Application name: `Backlog MCP Server`
-   - Authentication protocol: **OIDC**
-4. Under **Redirect URLs**, add:
+   - Authentication protocol: **OIDC** (not SAML)
+4. Under **Redirect URLs**, add two entries:
    ```
-   https://backlog-remote-mcp-server.midnight480.com/callback
+   https://<MCP_HOSTNAME>/callback
+   http://localhost:8788/callback
    ```
-5. Under **Identity providers**, enable the IdPs you configured (Google, Microsoft, or both)
-6. (Optional) If only one IdP is enabled, turn on **Apply instant authentication** to skip the login method selection screen
+   The second is for local verification (`npm run check:local`). If Access rejects `http://`, use `npm run dev:https` and register `https://localhost:8788/callback` instead.
+5. Turn **Proof Key for Code Exchange (PKCE)** **ON**
+
+   The Worker always sends a `code_challenge` (S256), so this is required — token exchange fails without it.
+   Leave the **Allow PKCE without Client Secret** toggle that appears below it **OFF** (the Worker is a confidential client and sends its client_secret).
+6. Under **Identity providers**, enable the IdPs you configured (Google, Microsoft, or both)
+7. (Optional) If only one IdP is enabled, turn on **Apply instant authentication** to skip the login method selection screen
 
 ### Step 4.3: Configure Access Policies
 
@@ -238,72 +266,145 @@ Under **Advanced settings** → turn on **Refresh tokens** to reduce re-authenti
 
 ## 5. Cloudflare Workers Deployment
 
-### Step 5.1: Create KV Namespace
+### Step 5.1: Create .dev.vars
+
+All environment-specific values live in `.dev.vars`. This single file is read by both local development and deployment, and is listed in `.gitignore`.
 
 ```bash
-npx wrangler kv namespace create "OAUTH_KV"
+cp .dev.vars.example .dev.vars
 ```
 
-Copy the output ID and update `wrangler.jsonc`:
-
-```jsonc
-"kv_namespaces": [
-  {
-    "binding": "OAUTH_KV",
-    "id": "<paste-your-kv-id-here>"
-  }
-]
-```
-
-### Step 5.2: Set All Secrets
+### Step 5.2: Create KV Namespace
 
 ```bash
-# Cloudflare Access values (from Step 4.4)
-npx wrangler secret put ACCESS_CLIENT_ID
-npx wrangler secret put ACCESS_CLIENT_SECRET
-npx wrangler secret put ACCESS_TOKEN_URL
-npx wrangler secret put ACCESS_AUTHORIZATION_URL
-npx wrangler secret put ACCESS_JWKS_URL
+npx wrangler kv namespace create backlog-remote-mcp-server-OAUTH_KV
+```
+
+Set the returned `id` in `.dev.vars`:
+
+```
+OAUTH_KV_ID=0123456789abcdef0123456789abcdef
+```
+
+> **Warning**
+> Do not share a namespace with another Worker. OAuth authorization codes, access tokens, and approved clients are stored here — sharing one mixes credentials between Workers. Even if a generically named `OAUTH_KV` namespace already exists, create a dedicated one prefixed with your project name.
+
+You do not need to edit `wrangler.jsonc`. The value from `.dev.vars` is injected at deploy time.
+
+### Step 5.3: Fill In .dev.vars
+
+Enter the values from Step 4.4 and the space configuration from Section 1.
+
+```
+# Custom domain to deploy to
+MCP_HOSTNAME=backlog-remote-mcp-server.example.com
+
+# KV namespace ID created in Step 5.2
+OAUTH_KV_ID=0123456789abcdef0123456789abcdef
+
+# Values from Step 4.4
+ACCESS_CLIENT_ID=...
+ACCESS_CLIENT_SECRET=...
+ACCESS_TOKEN_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/token
+ACCESS_AUTHORIZATION_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/authorization
+ACCESS_JWKS_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/jwks
 
 # Cookie encryption key
-openssl rand -hex 32 | npx wrangler secret put COOKIE_ENCRYPTION_KEY
+COOKIE_ENCRYPTION_KEY=<output of openssl rand -hex 32>
 
-# Allowed emails (JSON array)
-echo '["your-email@gmail.com", "your-ms@company.com"]' | npx wrangler secret put ALLOWED_EMAILS
+# Allowed email addresses (JSON array)
+ALLOWED_EMAILS=["your-email@gmail.com","your-ms@company.com"]
 
-# Backlog spaces config (JSON - see Section 1)
-npx wrangler secret put BACKLOG_SPACES_CONFIG
-# Then paste the JSON when prompted
+# Backlog spaces configuration (see Section 1)
+BACKLOG_SPACES_CONFIG={"spaces":[...],"defaultSpace":"WORK"}
 ```
 
-### Step 5.3: Deploy
+Generate the cookie encryption key with:
+
+```bash
+openssl rand -hex 32
+```
+
+> **Note**
+> `ALLOWED_EMAILS` is a separate check from the Access Policy. An address must be in **both** or the tools stay unavailable — login succeeds but `tools/list` returns only the single `access_denied` tool.
+
+### Step 5.4: Verify Locally (recommended)
+
+You can exercise the whole path before deploying.
+
+```bash
+npm run dev          # leave running in one terminal
+npm run check:local  # run in another terminal
+```
+
+`check:local` performs the following in order, opening a browser partway through so you can complete the Access login:
+
+1. Fetch the Authorization Server metadata
+2. Dynamic client registration
+3. Approve in the browser → Access login
+4. Token exchange with PKCE
+5. `initialize` / `tools/list`
+6. Call `get_space` and show the real response from Backlog
+
+If this passes, your Access configuration, PKCE setting, email allowlist, and Backlog API keys are all correct.
+
+### Step 5.5: Deploy
 
 ```bash
 npm run deploy
 ```
 
-The Worker deploys to:
+This runs three steps in order:
+
+1. Generate `wrangler.deploy.json` with `MCP_HOSTNAME` and `OAUTH_KV_ID` injected from `.dev.vars`
+2. Upload the `.dev.vars` values as Worker secrets via `wrangler secret bulk`
+3. `wrangler deploy`
+
+> **Warning**
+> `wrangler.jsonc` contains neither the custom domain nor the KV ID. A bare `npx wrangler deploy` attaches no custom domain and fails on the placeholder KV ID. Always use `npm run deploy`.
+
+The Worker is deployed to:
+
 ```
-https://backlog-remote-mcp-server.midnight480.com/mcp
+https://<MCP_HOSTNAME>/mcp
 ```
 
-### Step 5.4: Verify
+#### Related commands
 
-1. Open https://backlog-remote-mcp-server.midnight480.com/mcp in a browser
-2. You should be redirected to the Cloudflare Access login page
+| Command | What it does |
+|---|---|
+| `npm run deploy` | Generate config → upload secrets → deploy |
+| `npm run deploy:dry-run` | Generate and validate only (no upload) |
+| `npm run deploy:no-secrets` | Deploy without touching secrets |
+| `npm run secrets:push` | Upload secrets only |
+| `npm run secrets:dry-run` | Show which keys would be sent (values are never printed) |
+
+You can still set secrets individually:
+
+```bash
+npx wrangler secret put ACCESS_CLIENT_SECRET
+```
+
+> **Note**
+> `npm run deploy` **overwrites** production secrets with the values in `.dev.vars`. If you need different values locally and in production, switch to `deploy:no-secrets` for routine deploys and push secrets explicitly with `secrets:push`.
+
+### Step 5.6: Verify the Deployment
+
+1. Open `https://<MCP_HOSTNAME>/mcp` in a browser
+2. You should be redirected to the Cloudflare Access login screen
 3. Authenticate with your configured IdP
-4. After successful login, you should see a JSON response from the MCP endpoint
+4. After successful login, the MCP endpoint returns a JSON response
 
-### Step 5.5: Test with MCP Inspector
+### Step 5.7: Test with MCP Inspector
 
 ```bash
 npx @modelcontextprotocol/inspector@latest
 ```
 
-1. Enter the URL: `https://backlog-remote-mcp-server.midnight480.com/mcp`
+1. Enter `https://<MCP_HOSTNAME>/mcp` in the URL field
 2. Click **OAuth Settings** → **Quick OAuth Flow**
-3. Complete the authentication
-4. Click **Connect** → **List Tools** to verify all tools are available
+3. Complete authentication
+4. Click **Connect** → **List Tools** and confirm all tools appear
 
 ---
 
@@ -317,3 +418,9 @@ npx @modelcontextprotocol/inspector@latest
 | Tools not showing after connect | Check `BACKLOG_SPACES_CONFIG` JSON is valid. Check Worker logs with `wrangler tail` |
 | Google "access_denied" error | Ensure OAuth consent screen is configured and your email is in test users (if not published) |
 | Entra ID "AADSTS..." errors | Verify redirect URI matches exactly, admin consent is granted, and secret is not expired |
+| Token exchange fails / `invalid_grant` | Check that **PKCE** is ON in the Access SaaS App (Step 4.2). The Worker always sends a `code_challenge` |
+| `MCP_HOSTNAME is not set` / `OAUTH_KV_ID is not set` | The key is missing from `.dev.vars` or still holds a placeholder (Steps 5.2 / 5.3) |
+| `Space "..." is configured as read-only` | That space has `readOnly: true`. Remove it from `BACKLOG_SPACES_CONFIG` if writes are needed |
+| `Space "..." not found` | `defaultSpace` or the `space` argument does not match a `name` in `spaces`. Check with `list_spaces` |
+| Deployed but no custom domain attached | You likely ran a bare `wrangler deploy`. Use `npm run deploy` |
+| Cannot return to `/callback` locally | Add `http://localhost:8788/callback` to the Access SaaS App redirect URLs (Step 4.2) |

@@ -13,13 +13,14 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 	// List available organizations/spaces
 	server.tool(
 		"list_spaces",
-		"Returns list of configured Backlog spaces and which one is the default.",
+		"Returns list of configured Backlog spaces, which one is the default, and whether each one allows writes.",
 		{},
 		async () => {
 			const spaces = config.spaces.map((s) => ({
 				name: s.name,
 				domain: s.domain,
 				isDefault: s.name === config.defaultSpace,
+				readOnly: s.readOnly === true,
 			}));
 			return {
 				content: [{ type: "text", text: JSON.stringify(spaces, null, 2) }],
