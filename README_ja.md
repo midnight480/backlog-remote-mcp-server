@@ -1,26 +1,72 @@
 # Backlog Remote MCP Server
 
-Cloudflare Workers上で動作するリモートMCPサーバー。Backlog APIをMCPプロトコル経由で利用可能にし、Cloudflare Access + Google/Microsoft Entra ID認証で自分だけがアクセスできるようにしています。
+Backlog を MCP (Model Context Protocol) 経由で操作するリモートサーバです。
+**Cloudflare Workers と AWS のどちらにもデプロイできます。**
 
-[English version](./README.md) | [設定ガイド](./SETTINGS_ja.md)
+[English](README.md) | 日本語
 
 ## 特徴
 
-- **リモートMCPサーバー**: Cloudflare Workers上でホスティング。どこからでもアクセス可能
-- **Cloudflare Access認証**: Google / Microsoft Entra ID (またはその他のIdP) による認証。許可されたメールアドレスのみアクセス可能
-- **複数スペース対応**: 1つの接続で複数のBacklogスペースを操作可能。`space`パラメータで振り分け
-- **フルツールセット**: プロジェクト、課題、Wiki、Git/PR、通知を網羅
+- **マルチスペース対応** — 複数の Backlog スペースを 1 つのサーバから扱えます
+- **読み取り専用ガード** — 共用スペースを `readOnly` にすると書き込み系 API を拒否します
+- **OAuth 2.1 + PKCE** — 動的クライアント登録 (DCR) に対応し、MCP クライアントから直接接続できます
+- **メールアドレスによる認可** — 許可リストで利用者を限定します
+- **2 つの実行環境** — ビジネスロジックを共有したまま Cloudflare / AWS のどちらでも動きます
+
+## デプロイ先を選ぶ
+
+| | Cloudflare Workers | AWS |
+|---|---|---|
+| 実行環境 | Workers (エッジ) | Lambda + API Gateway HTTP API |
+| MCP セッション | Durable Objects | ステートレス |
+| OAuth 認可サーバ | `@cloudflare/workers-oauth-provider` | MCP SDK の `mcpAuthRouter` |
+| 上流 IdP | Cloudflare Access | Amazon Cognito |
+| 状態保存 | Workers KV | DynamoDB (TTL) |
+| シークレット | Workers Secrets | Secrets Manager |
+| IaC | wrangler | AWS SAM |
+| 設定ファイル | `.dev.vars` | `infra/aws/params.yaml` |
+
+提供されるツールと挙動はどちらも同じです。
+
+## セットアップ
+
+### 0. 前提
+
+Node.js 20 以上が必要です。
+
+```bash
+git clone <this-repo>
+cd my-own-backlog-remote-mcp-server
+npm install
+```
+
+デプロイ先に応じて追加のツールが要ります。
+
+| デプロイ先 | 必要なもの |
+|---|---|
+| Cloudflare Workers | Cloudflare アカウント (Workers 有効)、独自ドメイン (任意) |
+| AWS | AWS アカウント、AWS CLI v2、AWS SAM CLI |
+
+### 進める順番
+
+1. **[Backlog の API キーとスペース設定](docs/backlog_ja.md)** — 両プラットフォーム共通
+2. Identity Provider を選ぶ
+   - **[Google Cloud](docs/idp-google_ja.md)**
+   - **[Microsoft Entra ID](docs/idp-entra-id_ja.md)**
+3. デプロイ先を選ぶ
+   - **[Cloudflare Workers 版](docs/deploy-cloudflare_ja.md)**
+   - **[AWS 版](docs/deploy-aws_ja.md)**
 
 ## アーキテクチャ
 
 ```
-MCP Client (Claude, Kiro, Cursor, etc.)
+MCP クライアント (Claude, Kiro, Cursor など)
     ↓ Streamable HTTP + OAuth
-Cloudflare Workers (設定したカスタムドメイン)
-    ↓ Cloudflare Access (Google / Microsoft Entra ID)
-    ↓ Email allowlist check
-    ↓ Backlog API Key routing
-Backlog API (space-a.backlog.com, space-b.backlog.com, ...)
+実行環境 (Cloudflare Workers または AWS Lambda)
+    ↓ 上流 IdP (Cloudflare Access または Amazon Cognito)
+    ↓ メールアドレスの許可リスト判定
+    ↓ Backlog API キーによるルーティング
+Backlog スペース A / B / C ...
 ```
 
 ### ディレクトリ構成
@@ -35,177 +81,14 @@ src/
     create-server.ts       MCP サーバの組み立てと認可判定
   platforms/
     cloudflare/            Cloudflare Workers 向けの配線
-      index.ts             OAuthProvider + McpAgent (Durable Object)
-      access-handler.ts    Cloudflare Access との OIDC 連携
-      workers-oauth-utils.ts
+    aws/                   AWS Lambda 向けの配線
+infra/
+  aws/                     SAM テンプレートとパラメータ
 ```
 
-`src/core` は `@modelcontextprotocol/sdk` と `zod` にしか依存せず、Cloudflare 固有の API を一切参照しません。他の実行環境向けアダプタを `src/platforms/` 配下に追加すれば、ツール実装を共有したまま対応先を増やせます。
-
-## セットアップ手順
-
-各サービス (Backlog、Google、Microsoft Entra ID、Cloudflare) のスクリーンショット付き詳細手順は [設定ガイド](./SETTINGS_ja.md) を参照してください。
-
-### 前提条件
-
-- Cloudflareアカウント
-- Cloudflare Zero Trust組織 (Google / Microsoft Entra ID等のIdPを接続済み)
-- Backlog APIキー (各スペースごと)
-- Node.js 18+
-- Wrangler CLI
-
-### 1. リポジトリのクローンと依存関係インストール
-
-```bash
-git clone <this-repo>
-cd my-own-backlog-remote-mcp-server
-npm install
-```
-
-### 2. 設定ファイルの作成
-
-環境固有の値はすべて `.dev.vars` にまとめます。このファイルはローカル開発とデプロイの両方で参照され、Gitにはコミットされません。
-
-```bash
-cp .dev.vars.example .dev.vars
-```
-
-以降の手順で得た値を、このファイルに書き込んでいきます。
-
-### 3. KV Namespaceの作成
-
-```bash
-npx wrangler kv namespace create backlog-remote-mcp-server-OAUTH_KV
-```
-
-出力された `id` を `.dev.vars` に設定します。
-
-```
-OAUTH_KV_ID=0123456789abcdef0123456789abcdef
-```
-
-> **Note**
-> 他のWorkerと共用のnamespaceを使わないでください。OAuthの認可コード・トークン・承認済みクライアントがここに格納されるため、共有すると認証情報が混ざります。プロジェクト名を接頭辞に付けた専用namespaceを推奨します。
-
-### 4. Cloudflare Access SaaS Applicationの作成
-
-1. Cloudflare Dashboard → Zero Trust → Access controls → Applications
-2. **Create new application** → **SaaS applications** タブ → **OpenID Connect (OIDC)**
-3. 設定:
-   - Application name: `Backlog MCP Server`
-   - Authentication protocol: **OIDC** (SAMLではない)
-4. **Redirect URLs** に2つ登録:
-   ```
-   https://<あなたのドメイン>/callback
-   http://localhost:8788/callback
-   ```
-   下はローカル検証用です。Accessが `http://` を拒否する場合は `npm run dev:https` を使い `https://localhost:8788/callback` を登録してください。
-5. **Proof Key for Code Exchange (PKCE)** を **ON**
-   Workerは常に `code_challenge` (S256) を送るため必須です。「Allow PKCE without Client Secret」はOFFのままにします。
-6. Identity Providers:
-   - **Google** や **Microsoft Entra ID** を有効化
-   - IdPが1つだけなら **Apply instant authentication** をON (直接リダイレクト)
-7. Access Policies:
-   - Action: **Allow** / Include → Emails → 許可するメールアドレス
-8. 作成後、表示される以下の値を `.dev.vars` に転記:
-
-   | 画面上の項目 | `.dev.vars` のキー |
-   |---|---|
-   | Client ID | `ACCESS_CLIENT_ID` |
-   | Client Secret | `ACCESS_CLIENT_SECRET` |
-   | Token endpoint | `ACCESS_TOKEN_URL` |
-   | Authorization endpoint | `ACCESS_AUTHORIZATION_URL` |
-   | Key endpoint (JWKS) | `ACCESS_JWKS_URL` |
-
-> **Warning**
-> Client Secretは**作成直後しか表示されません**。画面を離れる前に転記してください。取り逃した場合は **Reset secret** で再発行します。
-
-### 5. Backlogスペースの設定
-
-`.dev.vars` の `BACKLOG_SPACES_CONFIG` に、利用するスペースをJSON1行で設定します。
-
-```
-BACKLOG_SPACES_CONFIG={"spaces":[{"name":"COMPANY_A","domain":"company-a.backlog.com","apiKey":"xxx"},{"name":"SHARED","domain":"shared.backlog.jp","apiKey":"yyy","readOnly":true}],"defaultSpace":"COMPANY_A"}
-```
-
-読みやすく展開すると以下の構造です。
-
-```json
-{
-  "spaces": [
-    {
-      "name": "COMPANY_A",
-      "domain": "company-a.backlog.com",
-      "apiKey": "your-api-key-for-company-a"
-    },
-    {
-      "name": "SHARED",
-      "domain": "shared.backlog.jp",
-      "apiKey": "your-api-key-for-shared",
-      "readOnly": true
-    }
-  ],
-  "defaultSpace": "COMPANY_A"
-}
-```
-
-| フィールド | 必須 | 説明 |
-|---|---|---|
-| `name` | ✅ | ツール呼び出し時に `space` 引数で指定するラベル。大文字小文字は区別されません |
-| `domain` | ✅ | スキームなしのホスト名。`.backlog.com` / `.backlog.jp` / `.backlogtool.com` |
-| `apiKey` | ✅ | Backlogの 個人設定 → API から発行 |
-| `readOnly` | | `true` にすると **GET以外のAPIを拒否** します。共用スペースの誤更新・誤削除を防げます |
-| `defaultSpace` | ✅ | `space` 引数を省略したときの宛先。`spaces` 内の `name` と一致させること |
-
-> **Note**
-> 共用スペースや本番スペースには `readOnly: true` を推奨します。ツールには `delete_issue` や `delete_project` といった破壊的操作が含まれており、MCPの利用者はLLMです。曖昧な指示が意図しないスペースに向いた場合の歯止めになります。
-
-### 6. カスタムドメインの設定
-
-`.dev.vars` にデプロイ先のホスト名を設定します。
-
-```
-MCP_HOSTNAME=backlog-remote-mcp-server.example.com
-```
-
-DNSレコードの手動作成は不要です。デプロイ時に `custom_domain: true` として登録され、Cloudflare側で自動設定されます。対象ドメインが同じアカウントのゾーンにある必要があります。
-
-### 7. デプロイ
-
-```bash
-npm run deploy
-```
-
-このコマンドは3ステップを順に実行します。
-
-1. `.dev.vars` の `MCP_HOSTNAME` と `OAUTH_KV_ID` を注入した `wrangler.deploy.json` を生成
-2. `.dev.vars` の値を `wrangler secret bulk` でWorkerのシークレットとして登録
-3. `wrangler deploy`
-
-> **Warning**
-> `wrangler.jsonc` にはカスタムドメインとKV IDが含まれていません。素の `npx wrangler deploy` を実行するとドメインが付かず、KV IDもプレースホルダのまま失敗します。必ず `npm run deploy` を使ってください。
-
-デプロイ後、以下のURLでMCPサーバーが利用可能になります。
-
-```
-https://<MCP_HOSTNAME>/mcp
-```
-
-#### 関連コマンド
-
-| コマンド | 動作 |
-|---|---|
-| `npm run deploy` | 設定生成 → シークレット登録 → デプロイ |
-| `npm run deploy:dry-run` | 設定生成と検証のみ (アップロードしない) |
-| `npm run deploy:no-secrets` | シークレットに触れずデプロイのみ |
-| `npm run secrets:push` | シークレット登録のみ |
-| `npm run secrets:dry-run` | 送信されるキー名の確認のみ (値は表示されません) |
-
-シークレットを手動で登録したい場合は従来どおり個別に設定することもできます。
-
-```bash
-npx wrangler secret put ACCESS_CLIENT_SECRET
-```
+`src/core` は `@modelcontextprotocol/sdk` と `zod` にしか依存せず、実行環境固有の
+API を一切参照しません。プラットフォームを追加する場合は `src/platforms/` 配下に
+アダプタを足すだけで、ツール実装をそのまま共有できます。
 
 ## MCPクライアントからの接続
 
@@ -297,73 +180,73 @@ Inspector画面で `https://<MCP_HOSTNAME>/mcp` を入力し、OAuth Settingsか
 
 ## ローカル開発
 
+ローカル実行は Cloudflare Workers 版 (`wrangler dev`) で行います。ビジネスロジックは
+`src/core` に集約されているため、ここで確認した挙動は AWS 版でもそのまま通用します。
+
 ```bash
 cp .dev.vars.example .dev.vars   # 各値を設定
 npm run dev
 # http://localhost:8788/mcp で起動
 ```
 
-`wrangler dev` はKVとDurable Objectをローカルでエミュレートするため、実際のCloudflareリソースには触れません。
+`wrangler dev` は KV と Durable Object をローカルでエミュレートするため、実際の
+Cloudflare リソースには触れません。
 
 ### 疎通確認
 
-OAuthからMCPツール実行までを一括で確認できます。
+OAuth から MCP ツール実行までを一括で確認できます。
 
 ```bash
 npm run check:local
 ```
 
-以下の順に実行され、途中でブラウザが開くのでCloudflare Accessのログインを完了させてください。
+以下の順に実行され、途中でブラウザが開くのでログインを完了させてください。
 
-1. Authorization Serverメタデータの取得
+1. Authorization Server メタデータの取得
 2. 動的クライアント登録
-3. ブラウザで承認 → Access ログイン
-4. PKCEによるトークン交換
+3. ブラウザで承認 → IdP ログイン
+4. PKCE によるトークン交換
 5. `initialize` / `tools/list`
-6. `get_space` を実際に呼び出してBacklogからの応答を確認
+6. `get_space` を実際に呼び出して Backlog からの応答を確認
 
-`tools/list` に `access_denied` の1件だけが返る場合は、ログインしたメールアドレスが `ALLOWED_EMAILS` に含まれていません。
+`tools/list` に `access_denied` の 1 件だけが返る場合は、ログインしたメールアドレスが
+許可リストに含まれていません。
 
-### HTTPSで起動する
+**デプロイ済みのエンドポイントに対しても使えます。**
 
-Cloudflare AccessのRedirect URLが `http://` を受け付けない場合に使います。
+```bash
+npm run check:local -- --base https://your-deployed-host
+```
+
+### HTTPS で起動する
+
+IdP のリダイレクト URL が `http://` を受け付けない場合に使います。
 
 ```bash
 npm run dev:https
 # https://localhost:8788/mcp で起動 (自己署名証明書)
 ```
 
-### 型チェック
+### 型チェックとテスト
+
+プラットフォームごとに型を分離しているため、AWS 側で Workers のグローバルを
+誤用するとエラーになります (逆も同様)。
 
 ```bash
-npm run type-check
+npm run type-check      # tsconfig.cloudflare.json と tsconfig.aws.json の両方
+npm run test:aws-oauth  # AWS 版 OAuth 認可サーバのロジック検証
 ```
 
-### .dev.vars.example
+### 設定ファイル
 
-```
-# デプロイ先のカスタムドメイン (npm run deploy がここから読む)
-MCP_HOSTNAME=your-worker.example.com
+| ファイル | 用途 | Git |
+|---|---|---|
+| `.dev.vars` | ローカル開発 + Cloudflare デプロイ | 除外 |
+| `.dev.vars.example` | 上記のひな形 | コミット |
+| `infra/aws/params.yaml` | AWS デプロイ | 除外 |
+| `infra/aws/params.example.yaml` | 上記のひな形 | コミット |
 
-# OAuth 用 KV namespace の ID (npm run deploy がここから読む)
-OAUTH_KV_ID=your-kv-namespace-id
-
-ACCESS_CLIENT_ID=your-local-client-id
-ACCESS_CLIENT_SECRET=your-local-client-secret
-ACCESS_TOKEN_URL=https://your-team.cloudflareaccess.com/cdn-cgi/access/sso/oidc/xxx/token
-ACCESS_AUTHORIZATION_URL=https://your-team.cloudflareaccess.com/cdn-cgi/access/sso/oidc/xxx/authorization
-ACCESS_JWKS_URL=https://your-team.cloudflareaccess.com/cdn-cgi/access/sso/oidc/xxx/jwks
-COOKIE_ENCRYPTION_KEY=your-random-hex-string
-ALLOWED_EMAILS=["your-email@gmail.com"]
-# readOnly:true のスペースは GET 以外の API を拒否する (共用スペースの誤更新・誤削除を防ぐ)
-BACKLOG_SPACES_CONFIG={"spaces":[{"name":"DEV","domain":"dev.backlog.com","apiKey":"xxx"},{"name":"SHARED","domain":"shared.backlog.com","apiKey":"yyy","readOnly":true}],"defaultSpace":"DEV"}
-```
-
-`MCP_HOSTNAME` と `OAUTH_KV_ID` はビルド時にのみ使われ、Workerのシークレットとしては送信されません。どちらも環境変数で上書きできるため、CIからは以下のように渡せます。
-
-```bash
-MCP_HOSTNAME=staging.example.com OAUTH_KV_ID=... npm run deploy
-```
+実値の書き方はそれぞれのデプロイ手順を参照してください。
 
 ## License
 

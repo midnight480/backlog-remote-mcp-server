@@ -17,10 +17,14 @@
 		"test:aws-oauth": "tsx tests/aws-oauth-provider.test.mts",
 		"aws:build": "sam build --template infra/aws/template.yaml",
 		"aws:deploy": "sam build --template infra/aws/template.yaml && sam deploy --template-file .aws-sam/build/template.yaml --stack-name backlog-mcp-aws --capabilities CAPABILITY_IAM --resolve-s3 --no-confirm-changeset --no-fail-on-empty-changeset --parameter-overrides file://infra/aws/params.yaml",
-		"aws:validate": "sam validate --template infra/aws/template.yaml --lint"
+		"aws:validate": "sam validate --template infra/aws/template.yaml --lint",
+		"aws:secrets:push": "node scripts/aws-push-secrets.mjs",
+		"aws:secrets:dry-run": "node scripts/aws-push-secrets.mjs --dry-run",
+		"aws:request-cert": "node scripts/aws-request-cert.mjs"
 	},
 	"dependencies": {
 		"@aws-sdk/client-dynamodb": "^3.1116.0",
+		"@aws-sdk/client-secrets-manager": "^3.1116.0",
 		"@aws-sdk/lib-dynamodb": "^3.1116.0",
 		"@cloudflare/workers-oauth-provider": "^0.8.1",
 		"@modelcontextprotocol/sdk": "1.29.0",

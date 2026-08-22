@@ -27,3 +27,18 @@ PublicBaseUrl: 'https://placeholder.invalid'
 # を登録しておくこと。
 GoogleClientId: ''
 GoogleClientSecret: ''
+
+# --- カスタムドメイン (任意) ---
+# 空なら API Gateway の既定エンドポイントを使う。
+ApiDomainName: ''
+
+# Route 53 にゾーンがある場合: ホストゾーン ID を入れると、証明書の発行・
+# DNS 検証・A レコード作成まで CloudFormation が自動で行う。
+# この場合 AcmCertificateArn は不要。
+HostedZoneId: ''
+
+# Route 53 以外で DNS を管理している場合: 先に証明書を発行して ARN を入れる。
+#   npm run aws:request-cert -- --domain backlog-mcp.example.com
+# デプロイ後、出力される CustomDomainTarget に向けて CNAME を登録する
+# (Cloudflare DNS なら Proxy は OFF = DNS only)。
+AcmCertificateArn: ''

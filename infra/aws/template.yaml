@@ -25,6 +25,32 @@ Parameters:
     NoEcho: true
     Default: ""
     Description: Google OAuth 2.0 クライアントシークレット
+  ApiDomainName:
+    Type: String
+    Default: ""
+    Description: >
+      API Gateway に割り当てるカスタムドメイン (例: backlog-mcp.example.com)。
+      空なら API Gateway の既定エンドポイントを使う。
+      AcmCertificateArn と両方が設定されているときだけ有効になる。
+  HostedZoneId:
+    Type: String
+    Default: ""
+    Description: >
+      ApiDomainName を管理する Route 53 ホストゾーンの ID。
+      指定すると ACM 証明書の作成・DNS 検証・A レコード作成まで
+      すべてこのテンプレートが行う (完全自動)。
+      Route 53 以外で DNS を管理している場合は空にし、AcmCertificateArn を
+      渡すこと。
+  AcmCertificateArn:
+    Type: String
+    Default: ""
+    Description: >
+      ApiDomainName に対応する ACM 証明書の ARN。HTTP API のリージョナル
+      エンドポイント用なので、このスタックと同じリージョンの証明書が要る。
+      HostedZoneId を指定しない場合 (Route 53 以外で DNS を管理している場合) に
+      使う。npm run aws:request-cert で発行できる。
+      Route 53 外の DNS でテンプレート内に証明書を作ると、CloudFormation が
+      検証完了まで待ち続けて詰まるため、この場合は事前発行が必要。
   PublicBaseUrl:
     Type: String
     Default: "https://placeholder.invalid"
@@ -35,6 +61,20 @@ Parameters:
 
 Conditions:
   UseGoogle: !Not [!Equals [!Ref GoogleClientId, ""]]
+  HasDomain: !Not [!Equals [!Ref ApiDomainName, ""]]
+  HasCertArn: !Not [!Equals [!Ref AcmCertificateArn, ""]]
+  HasHostedZone: !Not [!Equals [!Ref HostedZoneId, ""]]
+  # Route 53 にゾーンがあり証明書 ARN を渡していないときだけ証明書を作る
+  CreateCertificate: !And
+    - !Condition HasDomain
+    - !Condition HasHostedZone
+    - !Not [!Condition HasCertArn]
+  UseCustomDomain: !And
+    - !Condition HasDomain
+    - !Or [!Condition HasCertArn, !Condition HasHostedZone]
+  CreateDnsRecord: !And
+    - !Condition HasDomain
+    - !Condition HasHostedZone
 
 Globals:
   Function:
@@ -128,6 +168,72 @@ Resources:
         - !Sub "${PublicBaseUrl}/callback"
       PreventUserExistenceErrors: ENABLED
 
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+
+  # --- シークレット ---
+  # Lambda の環境変数は lambda:GetFunctionConfiguration 権限があれば読めるため、
+  # Backlog API キーと Cognito の client secret は Secrets Manager に置く。
+  UpstreamClientSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${AWS::StackName}/upstream-client-secret"
+      SecretString: !GetAtt UserPoolClient.ClientSecret
+
+  BacklogSpacesSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${AWS::StackName}/backlog-spaces-config"
+      SecretString: !Ref BacklogSpacesConfig
+
+  # Route 53 にゾーンがある場合のみ。DNS 検証レコードも ACM が自動作成する。
+  ApiCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: CreateCertificate
+    Properties:
+      DomainName: !Ref ApiDomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref ApiDomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  ApiDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: UseCustomDomain
+    Properties:
+      DomainName: !Ref ApiDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !If
+            - HasCertArn
+            - !Ref AcmCertificateArn
+            - !Ref ApiCertificate
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  ApiDomainMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: UseCustomDomain
+    Properties:
+      ApiId: !Ref HttpApi
+      DomainName: !Ref ApiDomain
+      Stage: $default
+
+  # Route 53 にゾーンがある場合のみ。それ以外は CustomDomainTarget を
+  # 手動で DNS に登録する。
+  ApiDomainRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: CreateDnsRecord
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref ApiDomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ApiDomain.RegionalDomainName
+        HostedZoneId: !GetAtt ApiDomain.RegionalHostedZoneId
+        EvaluateTargetHealth: false
+
   McpFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -136,15 +242,14 @@ Resources:
       Handler: handler.handler
       Environment:
         Variables:
-          BACKLOG_SPACES_CONFIG: !Ref BacklogSpacesConfig
+          # 値そのものではなく ARN を渡し、実行時に取得する
+          BACKLOG_SPACES_SECRET_ARN: !Ref BacklogSpacesSecret
+          UPSTREAM_CLIENT_SECRET_ARN: !Ref UpstreamClientSecret
+          # 許可メールは機密ではないため環境変数のままでよい
           ALLOWED_EMAILS: !Ref AllowedEmails
           AUTH_TABLE_NAME: !Ref AuthTable
           UPSTREAM_DOMAIN: !Sub "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
           UPSTREAM_CLIENT_ID: !Ref UserPoolClient
-          # Cognito アプリクライアントは GenerateSecret: true のため secret が要る。
-          # 本番では Secrets Manager / SSM SecureString 経由での注入を推奨
-          # (環境変数は lambda:GetFunctionConfiguration 権限があれば読める)。
-          UPSTREAM_CLIENT_SECRET: !GetAtt UserPoolClient.ClientSecret
           UPSTREAM_ISSUER: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
           # 1 回目のデプロイでは placeholder。FunctionUrl 確定後に再デプロイする
           ISSUER_URL: !Ref PublicBaseUrl
@@ -152,8 +257,27 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref AuthTable
-      FunctionUrlConfig:
-        AuthType: NONE
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref UpstreamClientSecret
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref BacklogSpacesSecret
+      # Lambda Function URL は使わない。WWW-Authenticate を
+      # x-amzn-Remapped-www-authenticate に書き換えてしまい、MCP クライアントの
+      # 保護リソース探索 (RFC 9728) が働かなくなるため。API Gateway HTTP API は
+      # このヘッダをそのまま通す (実測で確認済み)。
+      Events:
+        HttpApiProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+        HttpApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -168,9 +292,19 @@ Resources:
           - src/platforms/aws/handler.ts
 
 Outputs:
-  FunctionUrl:
-    Description: MCP endpoint base URL
-    Value: !GetAtt McpFunctionUrl.FunctionUrl
+  HttpApiUrl:
+    Description: API Gateway の既定エンドポイント
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  CustomDomainUrl:
+    Condition: UseCustomDomain
+    Description: カスタムドメインの URL
+    Value: !Sub "https://${ApiDomainName}"
+  CustomDomainTarget:
+    Condition: UseCustomDomain
+    Description: >
+      DNS に登録する CNAME の向き先。カスタムドメインの CNAME レコードを
+      この値に向ける (Cloudflare DNS なら Proxy は OFF = DNS only にすること)。
+    Value: !GetAtt ApiDomain.RegionalDomainName
   FunctionName:
     Value: !Ref McpFunction
   AuthTableName:
