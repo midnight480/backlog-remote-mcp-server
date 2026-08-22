@@ -5,6 +5,30 @@ export interface BacklogSpace {
 	name: string;
 	domain: string;
 	apiKey: string;
+	/**
+	 * true のスペースでは書き込み系 API (GET 以外) を拒否する。
+	 * 共用スペースを誤って更新・削除しないためのガード。
+	 */
+	readOnly?: boolean;
+}
+
+/** 読み取り専用スペースへの書き込みを拒否したときに投げるエラー */
+export class ReadOnlySpaceError extends Error {
+	constructor(space: BacklogSpace, method: string, path: string) {
+		super(
+			`Space "${space.name}" is configured as read-only. ` +
+				`Refusing ${method} ${path}. ` +
+				`Use list_spaces to see which spaces allow writes.`,
+		);
+		this.name = "ReadOnlySpaceError";
+	}
+}
+
+/** 読み取り専用スペースなら書き込みを拒否する。全ての書き込み経路がここを通る。 */
+function assertWritable(space: BacklogSpace, method: string, path: string): void {
+	if (space.readOnly && method.toUpperCase() !== "GET") {
+		throw new ReadOnlySpaceError(space, method.toUpperCase(), path);
+	}
 }
 
 export interface BacklogSpacesConfig {
@@ -26,6 +50,8 @@ export function parseSpacesConfig(configJson: string): BacklogSpacesConfig {
 			if (!space.name || !space.domain || !space.apiKey) {
 				throw new Error(`Space configuration invalid: each space needs name, domain, and apiKey`);
 			}
+			// 明示的に true のときだけ書き込み禁止。未指定・不正値は書き込み可。
+			space.readOnly = space.readOnly === true;
 		}
 		return config;
 	} catch (e) {
@@ -62,6 +88,7 @@ export async function callBacklogApi(
 	options: BacklogApiOptions,
 ): Promise<any> {
 	const { method = "GET", path, query, body } = options;
+	assertWritable(space, method, path);
 	const baseUrl = `https://${space.domain}/api/v2`;
 
 	const url = new URL(`${baseUrl}${path}`);
@@ -111,6 +138,7 @@ export async function callBacklogApiForm(
 	options: BacklogApiOptions,
 ): Promise<any> {
 	const { method = "POST", path, body } = options;
+	assertWritable(space, method, path);
 	const baseUrl = `https://${space.domain}/api/v2`;
 
 	const url = new URL(`${baseUrl}${path}`);

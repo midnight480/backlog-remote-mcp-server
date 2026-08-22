@@ -40,25 +40,47 @@ Backlog Remote MCP Serverで使用する各サービスの詳細なセットア�
       "apiKey": "仕事用スペースのAPIキー"
     },
     {
-      "name": "PERSONAL",
-      "domain": "your-personal.backlog.com",
-      "apiKey": "個人スペースのAPIキー"
+      "name": "SHARED",
+      "domain": "shared.backlog.jp",
+      "apiKey": "共用スペースのAPIキー",
+      "readOnly": true
     }
   ],
   "defaultSpace": "WORK"
 }
 ```
 
-| フィールド | 説明 |
-|-----------|------|
-| `name` | 任意のラベル。MCPツール呼び出し時の `space` パラメータとして使用 |
-| `domain` | Backlogスペースのドメイン (例: `your-space.backlog.com` または `your-space.backlog.jp`) |
-| `apiKey` | 上記で生成したAPIキー |
-| `defaultSpace` | `space` パラメータ省略時に使用するスペース |
+| フィールド | 必須 | 説明 |
+|-----------|:---:|------|
+| `name` | ✅ | 任意のラベル。MCPツール呼び出し時の `space` パラメータとして使用。大文字小文字は区別されません |
+| `domain` | ✅ | Backlogスペースのドメイン (例: `your-space.backlog.com` または `your-space.backlog.jp`)。スキームは含めません |
+| `apiKey` | ✅ | 上記で生成したAPIキー |
+| `readOnly` | | `true` で **GET以外のAPI呼び出しを拒否**。共用スペースの誤更新・誤削除を防ぎます |
+| `defaultSpace` | ✅ | `space` パラメータ省略時に使用するスペース。`spaces` 内の `name` と一致させること |
+
+この値は `.dev.vars` に1行のJSONとして設定します。
+
+```
+BACKLOG_SPACES_CONFIG={"spaces":[{"name":"WORK","domain":"your-company.backlog.com","apiKey":"xxx"},{"name":"SHARED","domain":"shared.backlog.jp","apiKey":"yyy","readOnly":true}],"defaultSpace":"WORK"}
+```
+
+### readOnly の使いどころ
+
+MCPツールには `add_issue` / `update_issue` / `delete_issue` / `delete_project` といった破壊的操作が含まれ、呼び出す主体はLLMです。曖昧な指示が意図しないスペースに向いた場合、`readOnly: true` が最後の歯止めになります。
+
+判定は `src/backlog-client.ts` のAPI呼び出し層で行われるため、個々のツール実装に依存せず、将来ツールが追加されても自動的に保護されます。拒否された場合はBacklog APIへリクエストを送る前にエラーが返ります。
+
+```
+Space "SHARED" is configured as read-only. Refusing POST /issues.
+Use list_spaces to see which spaces allow writes.
+```
+
+各スペースの状態は `list_spaces` ツールで確認できます。
 
 ### 注意事項
 
-- APIキーは、キー所有者の権限でBacklogスペースへのフルアクセスを許可します
+- APIキーは、キー所有者の権限でBacklogスペースへのフルアクセスを許可します。`readOnly: true` はこのMCPサーバー内のガードであり、キー自体の権限を制限するものではありません
+- 書き込みが不要なスペースには、Backlog側で権限を絞ったキーを発行し、あわせて `readOnly: true` を設定するのが確実です
 - キーは機密情報です。Cloudflare Secretsに格納され、MCPクライアントには一切露出しません
 - キーが漏洩した場合は、Backlogの個人設定 → API から即座に無効化してください
 
@@ -186,16 +208,22 @@ Cloudflare Access経由でMicrosoft Entra ID (旧 Azure AD) を認証プロバ�
 ### Step 4.2: Access SaaS Applicationの作成
 
 1. **Zero Trust** → **Access controls** → **Applications**
-2. **Create new application** → **SaaS application** をクリック
+2. **Create new application** → **SaaS applications** タブ → **OpenID Connect (OIDC)** を選択
 3. 設定:
    - Application name: `Backlog MCP Server`
-   - Authentication protocol: **OIDC**
-4. **Redirect URLs** に追加:
+   - Authentication protocol: **OIDC** (SAMLではない)
+4. **Redirect URLs** に2つ追加:
    ```
-   https://backlog-remote-mcp-server.midnight480.com/callback
+   https://<MCP_HOSTNAME>/callback
+   http://localhost:8788/callback
    ```
-5. **Identity providers** で設定済みのIdPを有効化 (Google、Microsoft、または両方)
-6. (任意) IdPが1つだけの場合、**Apply instant authentication** をONにするとログイン選択画面をスキップ
+   下はローカル検証 (`npm run check:local`) 用です。Accessが `http://` を拒否する場合は `npm run dev:https` を使い `https://localhost:8788/callback` を登録してください。
+5. **Proof Key for Code Exchange (PKCE)** を **ON** にする
+
+   Workerは常に `code_challenge` (S256) を送るため必須です。OFFのままだとトークン交換が失敗します。
+   その下に現れる **Allow PKCE without Client Secret** は **OFF** のままにしてください (Workerはclient_secretを送る機密クライアントです)。
+6. **Identity providers** で設定済みのIdPを有効化 (Google、Microsoft、または両方)
+7. (任意) IdPが1つだけの場合、**Apply instant authentication** をONにするとログイン選択画面をスキップ
 
 ### Step 4.3: Access Policyの設定
 
@@ -238,69 +266,142 @@ Worker Secretsとの対応:
 
 ## 5. Cloudflare Workersデプロイ
 
-### Step 5.1: KV Namespaceの作成
+### Step 5.1: .dev.vars の作成
+
+環境固有の値はすべて `.dev.vars` に集約します。このファイルはローカル開発とデプロイの両方から参照され、`.gitignore` 済みです。
 
 ```bash
-npx wrangler kv namespace create "OAUTH_KV"
+cp .dev.vars.example .dev.vars
 ```
 
-出力されたIDをコピーし、`wrangler.jsonc` を更新:
-
-```jsonc
-"kv_namespaces": [
-  {
-    "binding": "OAUTH_KV",
-    "id": "<ここにKV IDを貼り付け>"
-  }
-]
-```
-
-### Step 5.2: 全Secretsの設定
+### Step 5.2: KV Namespaceの作成
 
 ```bash
-# Cloudflare Accessの値 (Step 4.4参照)
-npx wrangler secret put ACCESS_CLIENT_ID
-npx wrangler secret put ACCESS_CLIENT_SECRET
-npx wrangler secret put ACCESS_TOKEN_URL
-npx wrangler secret put ACCESS_AUTHORIZATION_URL
-npx wrangler secret put ACCESS_JWKS_URL
+npx wrangler kv namespace create backlog-remote-mcp-server-OAUTH_KV
+```
+
+出力された `id` を `.dev.vars` に設定します。
+
+```
+OAUTH_KV_ID=0123456789abcdef0123456789abcdef
+```
+
+> **Warning**
+> 他のWorkerと共用のnamespaceを使わないでください。OAuthの認可コード・アクセストークン・承認済みクライアントがここに格納されます。共有すると別Workerと認証情報が混ざります。既に `OAUTH_KV` という汎用名のnamespaceがある場合も、プロジェクト名を接頭辞に付けた専用のものを新規作成してください。
+
+`wrangler.jsonc` を編集する必要はありません。デプロイ時に `.dev.vars` の値が注入されます。
+
+### Step 5.3: .dev.vars の記入
+
+Step 4.4 で確認した値と、セクション1で作成したスペース設定を書き込みます。
+
+```
+# デプロイ先のカスタムドメイン
+MCP_HOSTNAME=backlog-remote-mcp-server.example.com
+
+# Step 5.2 で作成した KV namespace の ID
+OAUTH_KV_ID=0123456789abcdef0123456789abcdef
+
+# Step 4.4 の値
+ACCESS_CLIENT_ID=...
+ACCESS_CLIENT_SECRET=...
+ACCESS_TOKEN_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/token
+ACCESS_AUTHORIZATION_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/authorization
+ACCESS_JWKS_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/jwks
 
 # Cookie暗号化キー
-openssl rand -hex 32 | npx wrangler secret put COOKIE_ENCRYPTION_KEY
+COOKIE_ENCRYPTION_KEY=<openssl rand -hex 32 の出力>
 
 # 許可メールアドレス (JSON配列)
-echo '["your-email@gmail.com", "your-ms@company.com"]' | npx wrangler secret put ALLOWED_EMAILS
+ALLOWED_EMAILS=["your-email@gmail.com","your-ms@company.com"]
 
-# Backlogスペース設定 (JSON - セクション1参照)
-npx wrangler secret put BACKLOG_SPACES_CONFIG
-# プロンプトが出たらJSONを貼り付け
+# Backlogスペース設定 (セクション1参照)
+BACKLOG_SPACES_CONFIG={"spaces":[...],"defaultSpace":"WORK"}
 ```
 
-### Step 5.3: デプロイ
+`COOKIE_ENCRYPTION_KEY` は以下で生成できます。
+
+```bash
+openssl rand -hex 32
+```
+
+> **Note**
+> `ALLOWED_EMAILS` はAccess Policyとは別のチェックです。**両方**に同じアドレスが入っていないとツールが利用できません。片方だけだとログインは通るのに `access_denied` ツール1件しか返らない、という状態になります。
+
+### Step 5.4: ローカルでの疎通確認 (推奨)
+
+デプロイ前にローカルで全経路を確認できます。
+
+```bash
+npm run dev          # 別ターミナルで起動したままにする
+npm run check:local  # 別ターミナルで実行
+```
+
+`check:local` は以下を順に実行し、途中でブラウザが開くのでAccessログインを完了させてください。
+
+1. Authorization Serverメタデータの取得
+2. 動的クライアント登録
+3. ブラウザで承認 → Access ログイン
+4. PKCEによるトークン交換
+5. `initialize` / `tools/list`
+6. `get_space` を実際に呼び出してBacklogからの応答を確認
+
+ここが通れば、Access設定・PKCE・メール許可・Backlog APIキーがすべて正しいことになります。
+
+### Step 5.5: デプロイ
 
 ```bash
 npm run deploy
 ```
 
-Workerは以下にデプロイされます:
+3ステップが順に実行されます。
+
+1. `.dev.vars` の `MCP_HOSTNAME` と `OAUTH_KV_ID` を注入した `wrangler.deploy.json` を生成
+2. `.dev.vars` の値を `wrangler secret bulk` でWorkerのシークレットとして登録
+3. `wrangler deploy`
+
+> **Warning**
+> `wrangler.jsonc` にはカスタムドメインもKV IDも含まれていません。素の `npx wrangler deploy` はカスタムドメインが付かず、KV IDもプレースホルダのままで失敗します。必ず `npm run deploy` を使ってください。
+
+Workerは以下にデプロイされます。
+
 ```
-https://backlog-remote-mcp-server.midnight480.com/mcp
+https://<MCP_HOSTNAME>/mcp
 ```
 
-### Step 5.4: 動作確認
+#### 関連コマンド
 
-1. ブラウザで https://backlog-remote-mcp-server.midnight480.com/mcp を開く
+| コマンド | 動作 |
+|---|---|
+| `npm run deploy` | 設定生成 → シークレット登録 → デプロイ |
+| `npm run deploy:dry-run` | 設定生成と検証のみ (アップロードしない) |
+| `npm run deploy:no-secrets` | シークレットに触れずデプロイのみ |
+| `npm run secrets:push` | シークレット登録のみ |
+| `npm run secrets:dry-run` | 送信されるキー名の確認のみ (値は表示されません) |
+
+シークレットを個別に設定したい場合は従来の方法も使えます。
+
+```bash
+npx wrangler secret put ACCESS_CLIENT_SECRET
+```
+
+> **Note**
+> `npm run deploy` は `.dev.vars` の値で本番のシークレットを**上書き**します。ローカルと本番で値を分けたくなった場合は、通常のデプロイに `deploy:no-secrets` を使い、シークレット更新は `secrets:push` で明示的に行う運用に切り替えてください。
+
+### Step 5.6: 動作確認
+
+1. ブラウザで `https://<MCP_HOSTNAME>/mcp` を開く
 2. Cloudflare Accessのログイン画面にリダイレクトされるはず
 3. 設定したIdPで認証
 4. ログイン成功後、MCPエンドポイントからJSONレスポンスが返る
 
-### Step 5.5: MCP Inspectorでテスト
+### Step 5.7: MCP Inspectorでテスト
 
 ```bash
 npx @modelcontextprotocol/inspector@latest
 ```
 
-1. URL欄に `https://backlog-remote-mcp-server.midnight480.com/mcp` を入力
+1. URL欄に `https://<MCP_HOSTNAME>/mcp` を入力
 2. **OAuth Settings** → **Quick OAuth Flow** をクリック
 3. 認証を完了
 4. **Connect** → **List Tools** をクリックし、全ツールが表示されることを確認
@@ -317,3 +418,9 @@ npx @modelcontextprotocol/inspector@latest
 | 接続後にツールが表示されない | `BACKLOG_SPACES_CONFIG` のJSONが有効か確認。`wrangler tail` でWorkerログを確認 |
 | Google "access_denied" エラー | OAuth同意画面が設定されており、テストユーザーに自分のメールが含まれているか確認 (未公開の場合) |
 | Entra ID "AADSTS..." エラー | リダイレクトURIが完全に一致すること、管理者の同意が付与されていること、シークレットが期限切れでないことを確認 |
+| トークン交換が失敗する / `invalid_grant` | Access SaaS Appの **PKCE** がONか確認 (Step 4.2)。Workerは常に `code_challenge` を送ります |
+| `MCP_HOSTNAME が未設定です` / `OAUTH_KV_ID が未設定です` | `.dev.vars` に該当キーがないか、プレースホルダのままです (Step 5.2 / 5.3) |
+| `Space "..." is configured as read-only` | そのスペースに `readOnly: true` が設定されています。書き込みが必要なら `BACKLOG_SPACES_CONFIG` から外してください |
+| `Space "..." not found` | `defaultSpace` または `space` 引数が `spaces` 内の `name` と一致していません。`list_spaces` で確認できます |
+| デプロイしたがカスタムドメインが付かない | 素の `wrangler deploy` を実行していませんか。`npm run deploy` を使ってください |
+| ローカルで `/callback` に戻れない | Access SaaS Appのリダイレクトに `http://localhost:8788/callback` を追加してください (Step 4.2) |

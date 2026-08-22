@@ -113,25 +113,67 @@ async function main() {
 	console.log(result.isError ? "\n\x1b[31m    ツールがエラーを返しました\x1b[0m" : "\n\x1b[32m✅ 疎通確認 OK\x1b[0m");
 }
 
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+
+const page = (title, body) =>
+	`<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title>` +
+	`<h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p>`;
+
 function waitForCode() {
 	return new Promise((resolve, reject) => {
+		let settled = false;
+		const finish = (fn, arg) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			server.close();
+			fn(arg);
+		};
+
 		const server = createServer((req, res) => {
 			const url = new URL(req.url, `http://127.0.0.1:${CB_PORT}`);
 			if (url.pathname !== "/callback") {
 				res.writeHead(404).end();
 				return;
 			}
+
+			// state を先に検証する。一致しないリクエスト (ブラウザのプリフェッチや
+			// 無関係なアクセス) でリスナーを閉じてしまわないよう、ここでは返答だけ
+			// してフローは継続させる。
+			if (url.searchParams.get("state") !== state) {
+				res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+				res.end(page("不正なリクエスト", "state が一致しません。"));
+				return;
+			}
+
 			const err = url.searchParams.get("error");
 			const code = url.searchParams.get("code");
+
+			if (err) {
+				const detail = `${err} ${url.searchParams.get("error_description") ?? ""}`.trim();
+				res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+				res.end(page("認可に失敗しました", "詳細はターミナルを確認してください。"));
+				finish(reject, new Error(`認可エラー: ${detail}`));
+				return;
+			}
+			if (!code) {
+				res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+				res.end(page("不正なリクエスト", "code がありません。"));
+				finish(reject, new Error("認可コードが返されませんでした"));
+				return;
+			}
+
 			res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-			res.end(`<h1>${err ? "認可に失敗しました" : "認可されました"}</h1><p>${err ?? "ターミナルに戻ってください。"}</p>`);
-			server.close();
-			if (err) reject(new Error(`認可エラー: ${err} ${url.searchParams.get("error_description") ?? ""}`));
-			else if (url.searchParams.get("state") !== state) reject(new Error("state が一致しません"));
-			else resolve(code);
+			res.end(page("認可されました", "ターミナルに戻ってください。"));
+			finish(resolve, code);
 		});
+
 		server.listen(CB_PORT, "127.0.0.1");
-		setTimeout(() => { server.close(); reject(new Error("認可待ちがタイムアウトしました (5分)")); }, 300_000);
+		const timer = setTimeout(
+			() => finish(reject, new Error("認可待ちがタイムアウトしました (5分)")),
+			300_000,
+		);
 	});
 }
 

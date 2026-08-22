@@ -11,4 +11,5 @@ ACCESS_AUTHORIZATION_URL=https://your-team.cloudflareaccess.com/cdn-cgi/access/s
 ACCESS_JWKS_URL=https://your-team.cloudflareaccess.com/cdn-cgi/access/sso/oidc/xxx/jwks
 COOKIE_ENCRYPTION_KEY=your-random-hex-string
 ALLOWED_EMAILS=["your-email@gmail.com"]
-BACKLOG_SPACES_CONFIG={"spaces":[{"name":"DEV","domain":"dev.backlog.com","apiKey":"xxx"}],"defaultSpace":"DEV"}
+# readOnly:true のスペースは GET 以外の API を拒否する (共用スペースの誤更新・誤削除を防ぐ)
+BACKLOG_SPACES_CONFIG={"spaces":[{"name":"DEV","domain":"dev.backlog.com","apiKey":"xxx"},{"name":"SHARED","domain":"shared.backlog.com","apiKey":"yyy","readOnly":true}],"defaultSpace":"DEV"}
