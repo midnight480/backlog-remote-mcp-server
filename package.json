@@ -22,7 +22,8 @@
 		"aws:secrets:dry-run": "node scripts/aws-push-secrets.mjs --dry-run",
 		"aws:request-cert": "node scripts/aws-request-cert.mjs",
 		"test:aws-consent": "tsx tests/aws-consent.test.mts",
-		"test": "npm run test:aws-oauth && npm run test:aws-consent"
+		"test": "npm run test:aws-oauth && npm run test:aws-consent && npm run test:aws-store",
+		"test:aws-store": "tsx tests/aws-store.test.mts"
 	},
 	"dependencies": {
 		"@aws-sdk/client-dynamodb": "^3.1116.0",

@@ -324,9 +324,17 @@ npm run dev:https
 誤用するとエラーになります (逆も同様)。
 
 ```bash
-npm run type-check      # tsconfig.cloudflare.json と tsconfig.aws.json の両方
-npm run test:aws-oauth  # AWS 版 OAuth 認可サーバのロジック検証
+npm run type-check   # tsconfig.cloudflare.json と tsconfig.aws.json の両方
+npm test             # 下記のテストをまとめて実行
 ```
+
+| コマンド | 対象 |
+|---|---|
+| `npm run test:aws-oauth` | OAuth 認可サーバのロジック (DCR、PKCE、トークンの使い捨て、スコープ、失効) |
+| `npm run test:aws-consent` | 同意画面 (HTML エスケープ、署名 Cookie、CSRF、承認ゲート) |
+| `npm run test:aws-store` | DynamoDB ストアのクライアント登録 TTL と延長 |
+
+いずれも外部サービスに接続せず、DynamoDB と上流 IdP はスタブに差し替えて動きます。
 
 ### 設定ファイル
 

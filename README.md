@@ -325,9 +325,17 @@ Types are split per platform, so misusing a Workers global in AWS code (or vice 
 is a type error.
 
 ```bash
-npm run type-check      # both tsconfig.cloudflare.json and tsconfig.aws.json
-npm run test:aws-oauth  # AWS OAuth authorization server logic
+npm run type-check   # both tsconfig.cloudflare.json and tsconfig.aws.json
+npm test             # runs all suites below
 ```
+
+| Command | Covers |
+|---|---|
+| `npm run test:aws-oauth` | OAuth authorization server logic (DCR, PKCE, single-use tokens, scopes, revocation) |
+| `npm run test:aws-consent` | Consent screen (HTML escaping, signed cookies, CSRF, approval gate) |
+| `npm run test:aws-store` | DynamoDB store client-registration TTL and renewal |
+
+None of them reach external services — DynamoDB and the upstream IdP are stubbed.
 
 ### Configuration files
 

@@ -54,6 +54,17 @@ export interface UpstreamStateRecord {
 
 const now = () => Math.floor(Date.now() / 1000);
 
+/**
+ * クライアント登録の保持期間。
+ * /register は認証なしで誰でも叩けるため、期限を付けないと匿名のレコードが
+ * 永久に溜まる。使われているクライアントは getClient のたびに延長されるので、
+ * 実質「90 日間まったく使われなかった登録だけが消える」挙動になる。
+ * 消えた場合も MCP クライアントは動的登録で作り直せる。
+ */
+const CLIENT_TTL_SEC = 60 * 60 * 24 * 90;
+/** 書き込みを減らすため、残りがこの割合を切ったときだけ延長する */
+const CLIENT_RENEW_THRESHOLD_SEC = CLIENT_TTL_SEC / 2;
+
 export class DynamoAuthStore {
 	private readonly doc: DynamoDBDocumentClient;
 
@@ -86,13 +97,25 @@ export class DynamoAuthStore {
 	// --- 登録済みクライアント (動的クライアント登録) ---
 
 	async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
-		const rec = await this.get<{ client: OAuthClientInformationFull }>(`client#${clientId}`);
-		return rec?.client;
+		const rec = await this.get<{ client: OAuthClientInformationFull; expiresAt?: number }>(
+			`client#${clientId}`,
+		);
+		if (!rec) return undefined;
+		// 使われている登録は期限を延ばす。認可のたびに書き込むのは無駄なので、
+		// 残りが半分を切ったときだけ更新する。
+		const remaining = (rec.expiresAt ?? 0) - now();
+		if (remaining < CLIENT_RENEW_THRESHOLD_SEC) {
+			await this.putClient(rec.client);
+		}
+		return rec.client;
 	}
 
 	async putClient(client: OAuthClientInformationFull): Promise<void> {
-		// クライアント登録は失効させない (expiresAt を設定しない)
-		await this.put({ pk: `client#${client.client_id}`, client });
+		await this.put({
+			pk: `client#${client.client_id}`,
+			client,
+			expiresAt: now() + CLIENT_TTL_SEC,
+		});
 	}
 
 	// --- 上流 IdP へのリダイレクト状態 ---
