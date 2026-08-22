@@ -23,6 +23,25 @@ Cloudflare Workers (your custom domain)
 Backlog API (space-a.backlog.com, space-b.backlog.com, ...)
 ```
 
+### Directory Layout
+
+Business logic is separated from runtime wiring.
+
+```
+src/
+  core/                    Runtime-independent
+    backlog-client.ts      Backlog API client (including the readOnly guard)
+    tools/                 40 MCP tools
+    create-server.ts       MCP server assembly and authorization
+  platforms/
+    cloudflare/            Cloudflare Workers wiring
+      index.ts             OAuthProvider + McpAgent (Durable Object)
+      access-handler.ts    OIDC integration with Cloudflare Access
+      workers-oauth-utils.ts
+```
+
+`src/core` depends only on `@modelcontextprotocol/sdk` and `zod`, and references no Cloudflare-specific API. Adding an adapter under `src/platforms/` extends the server to another runtime while sharing the same tool implementations.
+
 ## Setup
 
 For detailed step-by-step setup instructions for each service (Backlog, Google, Microsoft Entra ID, Cloudflare), see the [Configuration Guide](./SETTINGS.md).
@@ -267,7 +286,7 @@ All tools accept an optional `space` parameter:
 - **Double-check**: Access Policy (Cloudflare side) + in-app allowlist (Worker side)
 - **API Key Protection**: Backlog API keys are stored in Cloudflare Secrets and never exposed to clients
 - **PKCE + CSRF**: OAuth flow is protected with PKCE (S256) and CSRF tokens
-- **Write guard**: Spaces marked `readOnly: true` reject every non-GET call. The check lives in the API-call layer of `src/backlog-client.ts`, so it does not depend on individual tool implementations
+- **Write guard**: Spaces marked `readOnly: true` reject every non-GET call. The check lives in the API-call layer of `src/core/backlog-client.ts`, so it does not depend on individual tool implementations
 - **Configuration isolation**: All environment-specific values live in `.dev.vars` (untracked). The repository contains placeholders only
 
 ### Operational notes
