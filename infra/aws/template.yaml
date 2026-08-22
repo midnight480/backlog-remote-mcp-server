@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Backlog Remote MCP Server (AWS platform)
+
+Parameters:
+  BacklogSpacesConfig:
+    Type: String
+    NoEcho: true
+    Description: BACKLOG_SPACES_CONFIG (JSON)
+  AllowedEmails:
+    Type: String
+    Default: "[]"
+    Description: ALLOWED_EMAILS (JSON array)
+  CognitoDomainPrefix:
+    Type: String
+    Description: Cognito Hosted UI のドメイン接頭辞 (グローバルに一意)
+  PublicBaseUrl:
+    Type: String
+    Default: "https://placeholder.invalid"
+    Description: >
+      このサーバの公開 URL (末尾スラッシュなし)。Function URL は
+      CloudFormation が生成するまで確定しないため、1 回目のデプロイ後に
+      出力された FunctionUrl を指定して再デプロイする。
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    Timeout: 30
+    MemorySize: 512
+
+Resources:
+  # --- OAuth の状態保存 (Cloudflare 版の KV に相当) ---
+  AuthTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # --- 上流 IdP (Cloudflare Access に相当) ---
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${AWS::StackName}-users"
+      AutoVerifiedAttributes: [email]
+      UsernameAttributes: [email]
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref CognitoDomainPrefix
+      UserPoolId: !Ref UserPool
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub "${AWS::StackName}-mcp"
+      GenerateSecret: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes: [openid, email, profile]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs:
+        - !Sub "${PublicBaseUrl}/callback"
+      PreventUserExistenceErrors: ENABLED
+
+  McpFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      # esbuild ビルダーが esbuild と依存関係を解決できるようリポジトリルートを指す
+      CodeUri: ../../
+      Handler: handler.handler
+      Environment:
+        Variables:
+          BACKLOG_SPACES_CONFIG: !Ref BacklogSpacesConfig
+          ALLOWED_EMAILS: !Ref AllowedEmails
+          AUTH_TABLE_NAME: !Ref AuthTable
+          UPSTREAM_DOMAIN: !Sub "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
+          UPSTREAM_CLIENT_ID: !Ref UserPoolClient
+          # Cognito アプリクライアントは GenerateSecret: true のため secret が要る。
+          # 本番では Secrets Manager / SSM SecureString 経由での注入を推奨
+          # (環境変数は lambda:GetFunctionConfiguration 権限があれば読める)。
+          UPSTREAM_CLIENT_SECRET: !GetAtt UserPoolClient.ClientSecret
+          UPSTREAM_ISSUER: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+          # 1 回目のデプロイでは placeholder。FunctionUrl 確定後に再デプロイする
+          ISSUER_URL: !Ref PublicBaseUrl
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuthTable
+      FunctionUrlConfig:
+        AuthType: NONE
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: node22
+        Sourcemap: true
+        # CJS で出力する。serverless-http / express など CJS 依存が
+        # require("http") を動的に呼ぶため、ESM 出力だと実行時に失敗する。
+        Format: cjs
+        MainFields: main,module
+        EntryPoints:
+          - src/platforms/aws/handler.ts
+
+Outputs:
+  FunctionUrl:
+    Description: MCP endpoint base URL
+    Value: !GetAtt McpFunctionUrl.FunctionUrl
+  FunctionName:
+    Value: !Ref McpFunction
+  AuthTableName:
+    Value: !Ref AuthTable
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  CognitoDomain:
+    Value: !Sub "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
