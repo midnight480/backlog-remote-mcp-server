@@ -23,17 +23,17 @@
 			"id": "<YOUR_KV_NAMESPACE_ID>"
 		}
 	],
-	"routes": [
-		{
-			"pattern": "backlog-remote-mcp-server.midnight480.com",
-			"custom_domain": true
-		}
-	],
+	// カスタムドメインはここに書かない。デプロイ時に MCP_HOSTNAME から
+	// wrangler.deploy.json へ注入される (scripts/build-deploy-config.mjs)。
+	// 素の `wrangler deploy` ではカスタムドメインが付かないので必ず
+	// `npm run deploy` を使うこと。
 	"observability": {
 		"enabled": true
 	},
 	"dev": {
-		"port": 8788
+		"port": 8788,
+		// ローカル開発時のホスト。routes の custom_domain に上書きされないようにする
+		"host": "localhost:8788"
 	},
 	"secrets": {
 		"required": [
