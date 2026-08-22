@@ -1,6 +1,9 @@
 # デプロイ先のカスタムドメイン (npm run deploy がここから読む)
 MCP_HOSTNAME=your-worker.example.com
 
+# OAuth 用 KV namespace の ID (npm run deploy がここから読む)
+OAUTH_KV_ID=your-kv-namespace-id
+
 ACCESS_CLIENT_ID=your-local-client-id
 ACCESS_CLIENT_SECRET=your-local-client-secret
 ACCESS_TOKEN_URL=https://your-team.cloudflareaccess.com/cdn-cgi/access/sso/oidc/xxx/token

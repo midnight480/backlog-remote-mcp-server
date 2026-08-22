@@ -4,13 +4,16 @@
 	"private": true,
 	"scripts": {
 		"dev": "wrangler dev",
-		"deploy": "node scripts/build-deploy-config.mjs && wrangler deploy --config wrangler.deploy.json",
+		"deploy": "node scripts/build-deploy-config.mjs && node scripts/push-secrets.mjs && wrangler deploy --config wrangler.deploy.json",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"type-check": "tsc --noEmit",
 		"dev:https": "wrangler dev --local-protocol https",
 		"check:local": "node scripts/local-mcp-check.mjs",
-		"deploy:dry-run": "node scripts/build-deploy-config.mjs && wrangler deploy --dry-run --config wrangler.deploy.json"
+		"deploy:dry-run": "node scripts/build-deploy-config.mjs && wrangler deploy --dry-run --config wrangler.deploy.json",
+		"secrets:push": "node scripts/build-deploy-config.mjs && node scripts/push-secrets.mjs",
+		"secrets:dry-run": "node scripts/push-secrets.mjs --dry-run",
+		"deploy:no-secrets": "node scripts/build-deploy-config.mjs && wrangler deploy --config wrangler.deploy.json"
 	},
 	"dependencies": {
 		"@cloudflare/workers-oauth-provider": "^0.8.1",
