@@ -23,6 +23,25 @@ Cloudflare Workers (設定したカスタムドメイン)
 Backlog API (space-a.backlog.com, space-b.backlog.com, ...)
 ```
 
+### ディレクトリ構成
+
+ビジネスロジックと実行環境の配線を分離しています。
+
+```
+src/
+  core/                    実行環境に依存しない部分
+    backlog-client.ts      Backlog API クライアント (readOnly ガードもここ)
+    tools/                 MCP ツール 40 個
+    create-server.ts       MCP サーバの組み立てと認可判定
+  platforms/
+    cloudflare/            Cloudflare Workers 向けの配線
+      index.ts             OAuthProvider + McpAgent (Durable Object)
+      access-handler.ts    Cloudflare Access との OIDC 連携
+      workers-oauth-utils.ts
+```
+
+`src/core` は `@modelcontextprotocol/sdk` と `zod` にしか依存せず、Cloudflare 固有の API を一切参照しません。他の実行環境向けアダプタを `src/platforms/` 配下に追加すれば、ツール実装を共有したまま対応先を増やせます。
+
 ## セットアップ手順
 
 各サービス (Backlog、Google、Microsoft Entra ID、Cloudflare) のスクリーンショット付き詳細手順は [設定ガイド](./SETTINGS_ja.md) を参照してください。
@@ -267,7 +286,7 @@ Inspector画面で `https://<MCP_HOSTNAME>/mcp` を入力し、OAuth Settingsか
 - **二重チェック**: Access Policy (Cloudflare側) + アプリケーション内allowlist (Worker側)
 - **APIキー保護**: Backlog APIキーはCloudflare Secretsに格納。クライアントには一切露出しない
 - **PKCE + CSRF**: OAuth flowはPKCE (S256) とCSRFトークンで保護
-- **書き込みガード**: `readOnly: true` のスペースはGET以外を拒否。判定は `src/backlog-client.ts` のAPI呼び出し層で行うため、個々のツール実装に依存しません
+- **書き込みガード**: `readOnly: true` のスペースはGET以外を拒否。判定は `src/core/backlog-client.ts` のAPI呼び出し層で行うため、個々のツール実装に依存しません
 - **設定の分離**: 環境固有の値はすべて `.dev.vars` (Git管理外) に集約。リポジトリにはプレースホルダのみ
 
 ### 運用上の注意

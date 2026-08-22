@@ -68,7 +68,7 @@ BACKLOG_SPACES_CONFIG={"spaces":[{"name":"WORK","domain":"your-company.backlog.c
 
 MCPツールには `add_issue` / `update_issue` / `delete_issue` / `delete_project` といった破壊的操作が含まれ、呼び出す主体はLLMです。曖昧な指示が意図しないスペースに向いた場合、`readOnly: true` が最後の歯止めになります。
 
-判定は `src/backlog-client.ts` のAPI呼び出し層で行われるため、個々のツール実装に依存せず、将来ツールが追加されても自動的に保護されます。拒否された場合はBacklog APIへリクエストを送る前にエラーが返ります。
+判定は `src/core/backlog-client.ts` のAPI呼び出し層で行われるため、個々のツール実装に依存せず、将来ツールが追加されても自動的に保護されます。拒否された場合はBacklog APIへリクエストを送る前にエラーが返ります。
 
 ```
 Space "SHARED" is configured as read-only. Refusing POST /issues.
