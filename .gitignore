@@ -5,3 +5,4 @@ dist/
 wrangler.deploy.json
 .aws-sam/
 samconfig.toml
+infra/aws/params.yaml

@@ -14,6 +14,17 @@ Parameters:
   CognitoDomainPrefix:
     Type: String
     Description: Cognito Hosted UI のドメイン接頭辞 (グローバルに一意)
+  GoogleClientId:
+    Type: String
+    Default: ""
+    Description: >
+      Google Cloud Console の OAuth 2.0 クライアント ID。
+      空のままなら Google 連携を作らず、Cognito の内部ユーザーのみになる。
+  GoogleClientSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Google OAuth 2.0 クライアントシークレット
   PublicBaseUrl:
     Type: String
     Default: "https://placeholder.invalid"
@@ -21,6 +32,9 @@ Parameters:
       このサーバの公開 URL (末尾スラッシュなし)。Function URL は
       CloudFormation が生成するまで確定しないため、1 回目のデプロイ後に
       出力された FunctionUrl を指定して再デプロイする。
+
+Conditions:
+  UseGoogle: !Not [!Equals [!Ref GoogleClientId, ""]]
 
 Globals:
   Function:
@@ -75,6 +89,25 @@ Resources:
       Domain: !Ref CognitoDomainPrefix
       UserPoolId: !Ref UserPool
 
+  GoogleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: UseGoogle
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: "openid email profile"
+      # email_verified を明示的に写す。これが無いと Cognito 側で未設定になり、
+      # ID トークンの検証で「検証済みか判別できない」状態になる。
+      AttributeMapping:
+        email: email
+        email_verified: email_verified
+        name: name
+        username: sub
+
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -84,7 +117,13 @@ Resources:
       AllowedOAuthFlows: [code]
       AllowedOAuthFlowsUserPoolClient: true
       AllowedOAuthScopes: [openid, email, profile]
-      SupportedIdentityProviders: [COGNITO]
+      # !Ref GoogleIdentityProvider が IdP 名 ("Google") を返すため、
+      # ここで参照することで「IdP 作成後にクライアントを更新する」順序が
+      # 暗黙に保証される。条件付きリソースへの DependsOn は使えない。
+      SupportedIdentityProviders: !If
+        - UseGoogle
+        - [COGNITO, !Ref GoogleIdentityProvider]
+        - [COGNITO]
       CallbackURLs:
         - !Sub "${PublicBaseUrl}/callback"
       PreventUserExistenceErrors: ENABLED
@@ -142,3 +181,6 @@ Outputs:
     Value: !Ref UserPoolClient
   CognitoDomain:
     Value: !Sub "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
+  GoogleRedirectUri:
+    Description: Google Cloud Console の「承認済みのリダイレクト URI」に登録する値
+    Value: !Sub "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com/oauth2/idpresponse"

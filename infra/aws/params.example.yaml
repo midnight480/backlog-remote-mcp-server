@@ -1,0 +1,29 @@
+# SAM のパラメータ。infra/aws/params.yaml にコピーして実値を記入する。
+# params.yaml は .gitignore 済み。
+#
+#   cp infra/aws/params.example.yaml infra/aws/params.yaml
+#   npm run aws:deploy
+#
+# 注意: sam deploy --parameter-overrides に値を直接書くとカンマで分割されて
+# JSON が壊れるため、必ずこのファイル経由で渡すこと。
+
+# Backlog スペース設定 (1 行の JSON)
+BacklogSpacesConfig: '{"spaces":[{"name":"DEV","domain":"dev.backlog.com","apiKey":"xxx"}],"defaultSpace":"DEV"}'
+
+# 許可するメールアドレス (JSON 配列)
+AllowedEmails: '["your-email@example.com"]'
+
+# Cognito Hosted UI のドメイン接頭辞 (グローバルに一意)
+CognitoDomainPrefix: 'your-unique-prefix'
+
+# このサーバの公開 URL (末尾スラッシュなし)。
+# 1 回目のデプロイでは placeholder のままにし、出力された FunctionUrl を
+# 記入して再デプロイする。
+PublicBaseUrl: 'https://placeholder.invalid'
+
+# Google Workspace 連携 (任意)。空なら Cognito の内部ユーザーのみになる。
+# Google Cloud Console の「承認済みのリダイレクト URI」に
+#   https://<CognitoDomainPrefix>.auth.<region>.amazoncognito.com/oauth2/idpresponse
+# を登録しておくこと。
+GoogleClientId: ''
+GoogleClientSecret: ''
