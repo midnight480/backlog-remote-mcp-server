@@ -1,211 +1,28 @@
-# Configuration Guide
+# Deploying to Cloudflare Workers
 
-Detailed setup instructions for each service used by Backlog Remote MCP Server.
+Prerequisites: [Backlog configuration](backlog.md) and one of
+[Google](idp-google.md) or [Entra ID](idp-entra-id.md) as the IdP.
 
-[日本語版](./SETTINGS_ja.md)
+## Architecture
 
-## Table of Contents
+| Role | Component |
+|---|---|
+| Runtime | Cloudflare Workers |
+| MCP session | Durable Objects (`McpAgent`) |
+| OAuth authorization server | `@cloudflare/workers-oauth-provider` |
+| Upstream IdP | Cloudflare Access (SaaS app / OIDC) |
+| State storage | Workers KV |
+| Secrets | Workers Secrets |
+| Config file | `.dev.vars` |
 
-1. [Backlog API Key](#1-backlog-api-key)
-2. [Google Account (Identity Provider)](#2-google-account-identity-provider)
-3. [Microsoft Entra ID (Identity Provider)](#3-microsoft-entra-id-identity-provider)
-4. [Cloudflare Zero Trust & Access](#4-cloudflare-zero-trust--access)
-5. [Cloudflare Workers Deployment](#5-cloudflare-workers-deployment)
-
----
-
-## 1. Backlog API Key
-
-You need an API key for each Backlog space you want to connect.
-
-### Steps
-
-1. Log in to your Backlog space (e.g., `https://your-space.backlog.com`)
-2. Click your avatar (top-right) → **Personal Settings**
-3. Go to the **API** tab
-4. Click **Register new application** (or **Generate API Key** depending on your plan)
-5. Enter a memo (e.g., `MCP Server`) and click **Submit**
-6. Copy the generated API key
-
-### Repeat for Each Space
-
-If you have multiple spaces, repeat the above for each one. Then format them into the `BACKLOG_SPACES_CONFIG` JSON:
-
-```json
-{
-  "spaces": [
-    {
-      "name": "WORK",
-      "domain": "your-company.backlog.com",
-      "apiKey": "apikey-for-work-space"
-    },
-    {
-      "name": "SHARED",
-      "domain": "shared.backlog.jp",
-      "apiKey": "apikey-for-shared-space",
-      "readOnly": true
-    }
-  ],
-  "defaultSpace": "WORK"
-}
-```
-
-| Field | Required | Description |
-|-------|:---:|-------------|
-| `name` | ✅ | A label you choose. Used as the `space` parameter in MCP tool calls. Matching is case-insensitive |
-| `domain` | ✅ | Your Backlog space domain (e.g., `your-space.backlog.com` or `your-space.backlog.jp`). No scheme |
-| `apiKey` | ✅ | The API key generated above |
-| `readOnly` | | When `true`, **all non-GET API calls are rejected**, guarding shared spaces against accidental writes and deletes |
-| `defaultSpace` | ✅ | Which space to use when the `space` parameter is omitted. Must match a `name` in `spaces` |
-
-Set this in `.dev.vars` as a single-line JSON value:
-
-```
-BACKLOG_SPACES_CONFIG={"spaces":[{"name":"WORK","domain":"your-company.backlog.com","apiKey":"xxx"},{"name":"SHARED","domain":"shared.backlog.jp","apiKey":"yyy","readOnly":true}],"defaultSpace":"WORK"}
-```
-
-### When to use readOnly
-
-The tool set includes destructive operations such as `add_issue`, `update_issue`, `delete_issue`, and `delete_project`, and the caller is an LLM. When an ambiguous instruction is aimed at the wrong space, `readOnly: true` is the backstop.
-
-The check lives in the API-call layer of `src/core/backlog-client.ts`, so it does not depend on individual tool implementations and automatically covers tools added later. Rejection happens before any request reaches the Backlog API:
-
-```
-Space "SHARED" is configured as read-only. Refusing POST /issues.
-Use list_spaces to see which spaces allow writes.
-```
-
-Use the `list_spaces` tool to see the status of each space.
-
-### Important Notes
-
-- API keys grant full access to the Backlog space on behalf of the key owner. `readOnly: true` is a guard inside this MCP server; it does not restrict the key itself
-- For spaces that need no writes, issue a permission-restricted key in Backlog *and* set `readOnly: true`
-- Keep keys confidential. They are stored as Cloudflare Secrets and never exposed to MCP clients
-- If a key is compromised, revoke it immediately from Backlog Personal Settings → API
-
----
-
-## 2. Google Account (Identity Provider)
-
-Use Google as the authentication provider via Cloudflare Access.
-
-### Prerequisites
-
-- A Google account (Gmail or Google Workspace)
-- Admin access to your Cloudflare Zero Trust organization
-
-### Step 2.1: Configure Google as an IdP in Cloudflare Zero Trust
-
-1. Go to **Cloudflare Dashboard** → **Zero Trust** → **Settings** → **Authentication**
-2. Under **Login methods**, click **Add new**
-3. Select **Google**
-4. You will see instructions to create OAuth credentials in Google Cloud Console
-
-### Step 2.2: Create OAuth Credentials in Google Cloud Console
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Select or create a project
-3. Navigate to **APIs & Services** → **Credentials**
-4. Click **Create Credentials** → **OAuth client ID**
-5. Application type: **Web application**
-6. Name: `Cloudflare Access`
-7. Authorized redirect URIs: Add the URI shown in the Cloudflare Zero Trust setup page
-   - Format: `https://<YOUR_TEAM_NAME>.cloudflareaccess.com/cdn-cgi/access/callback`
-8. Click **Create**
-9. Copy the **Client ID** and **Client Secret**
-
-### Step 2.3: Complete Cloudflare Setup
-
-1. Back in the Cloudflare Zero Trust Authentication page
-2. Paste the Client ID and Client Secret from Google
-3. Click **Save**
-4. Test the connection by clicking **Test**
-
-### Step 2.4: Configure OAuth Consent Screen (if needed)
-
-If the test fails or you get a consent screen error:
-
-1. Google Cloud Console → **APIs & Services** → **OAuth consent screen**
-2. User Type: **External** (or Internal for Google Workspace)
-3. Fill in app name, support email, and developer contact
-4. Scopes: Add `email`, `profile`, `openid`
-5. Test users: Add your email address (if External and not yet published)
-6. Click **Save**
-
----
-
-## 3. Microsoft Entra ID (Identity Provider)
-
-Use Microsoft Entra ID (formerly Azure AD) as the authentication provider via Cloudflare Access.
-
-### Prerequisites
-
-- A Microsoft account (personal or work/school)
-- Admin access to your Cloudflare Zero Trust organization
-- Access to [Microsoft Entra admin center](https://entra.microsoft.com/) (or Azure Portal)
-
-### Step 3.1: Register an Application in Entra ID
-
-1. Go to [Microsoft Entra admin center](https://entra.microsoft.com/)
-2. Navigate to **Identity** → **Applications** → **App registrations**
-3. Click **New registration**
-4. Configure:
-   - Name: `Cloudflare Access`
-   - Supported account types: Choose based on your needs
-     - **Single tenant**: Only your organization
-     - **Multitenant + personal**: Any Microsoft account
-   - Redirect URI:
-     - Platform: **Web**
-     - URI: `https://<YOUR_TEAM_NAME>.cloudflareaccess.com/cdn-cgi/access/callback`
-5. Click **Register**
-6. Note the **Application (client) ID** and **Directory (tenant) ID**
-
-### Step 3.2: Create a Client Secret
-
-1. In the registered app, go to **Certificates & secrets**
-2. Click **New client secret**
-3. Description: `Cloudflare Access`
-4. Expiry: Choose an appropriate duration (recommended: 24 months)
-5. Click **Add**
-6. Copy the **Value** immediately (it will not be shown again)
-
-### Step 3.3: Configure API Permissions
-
-1. Go to **API permissions**
-2. Click **Add a permission** → **Microsoft Graph** → **Delegated permissions**
-3. Add these permissions:
-   - `email`
-   - `openid`
-   - `profile`
-   - `User.Read`
-4. Click **Grant admin consent for [your org]** (if you have admin access)
-
-### Step 3.4: Configure Cloudflare Zero Trust
-
-1. Go to **Cloudflare Dashboard** → **Zero Trust** → **Settings** → **Authentication**
-2. Under **Login methods**, click **Add new**
-3. Select **Azure AD**
-4. Fill in:
-   - Application ID: The client ID from Step 3.1
-   - Application secret: The client secret from Step 3.2
-   - Directory ID: The tenant ID from Step 3.1
-5. (Optional) Enable **Support Groups** if you want group-based access policies
-6. Click **Save**
-7. Test the connection by clicking **Test**
-
----
-
-## 4. Cloudflare Zero Trust & Access
-
-### Step 4.1: Create Zero Trust Organization (if not done)
+## Step 4.1: Create Zero Trust Organization (if not done)
 
 1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/)
 2. Navigate to **Zero Trust** in the left sidebar
 3. Follow the prompts to create a team name (e.g., `your-team`)
 4. This gives you a `your-team.cloudflareaccess.com` domain
 
-### Step 4.2: Create Access SaaS Application
+## Step 4.2: Create Access SaaS Application
 
 1. Go to **Zero Trust** → **Access controls** → **Applications**
 2. Click **Create new application** → **SaaS applications** tab → **OpenID Connect (OIDC)**
@@ -225,7 +42,7 @@ Use Microsoft Entra ID (formerly Azure AD) as the authentication provider via Cl
 6. Under **Identity providers**, enable the IdPs you configured (Google, Microsoft, or both)
 7. (Optional) If only one IdP is enabled, turn on **Apply instant authentication** to skip the login method selection screen
 
-### Step 4.3: Configure Access Policies
+## Step 4.3: Configure Access Policies
 
 1. In the same application setup, under **Policies**
 2. Create a policy:
@@ -236,7 +53,7 @@ Use Microsoft Entra ID (formerly Azure AD) as the authentication provider via Cl
    - (Or use **Email domain**, **IdP groups**, etc.)
 3. Click **Save**
 
-### Step 4.4: Note the Endpoints
+## Step 4.4: Note the Endpoints
 
 After creating the application, you will see:
 
@@ -258,15 +75,13 @@ These values map to the Worker secrets:
 | `ACCESS_AUTHORIZATION_URL` | Authorization endpoint |
 | `ACCESS_JWKS_URL` | Key (JWKS) endpoint |
 
-### Step 4.5: (Optional) Enable Refresh Tokens
+## Step 4.5: (Optional) Enable Refresh Tokens
 
 Under **Advanced settings** → turn on **Refresh tokens** to reduce re-authentication frequency.
 
 ---
 
-## 5. Cloudflare Workers Deployment
-
-### Step 5.1: Create .dev.vars
+## Step 5.1: Create .dev.vars
 
 All environment-specific values live in `.dev.vars`. This single file is read by both local development and deployment, and is listed in `.gitignore`.
 
@@ -274,7 +89,7 @@ All environment-specific values live in `.dev.vars`. This single file is read by
 cp .dev.vars.example .dev.vars
 ```
 
-### Step 5.2: Create KV Namespace
+## Step 5.2: Create KV Namespace
 
 ```bash
 npx wrangler kv namespace create backlog-remote-mcp-server-OAUTH_KV
@@ -291,7 +106,7 @@ OAUTH_KV_ID=0123456789abcdef0123456789abcdef
 
 You do not need to edit `wrangler.jsonc`. The value from `.dev.vars` is injected at deploy time.
 
-### Step 5.3: Fill In .dev.vars
+## Step 5.3: Fill In .dev.vars
 
 Enter the values from Step 4.4 and the space configuration from Section 1.
 
@@ -328,7 +143,7 @@ openssl rand -hex 32
 > **Note**
 > `ALLOWED_EMAILS` is a separate check from the Access Policy. An address must be in **both** or the tools stay unavailable — login succeeds but `tools/list` returns only the single `access_denied` tool.
 
-### Step 5.4: Verify Locally (recommended)
+## Step 5.4: Verify Locally (recommended)
 
 You can exercise the whole path before deploying.
 
@@ -348,7 +163,7 @@ npm run check:local  # run in another terminal
 
 If this passes, your Access configuration, PKCE setting, email allowlist, and Backlog API keys are all correct.
 
-### Step 5.5: Deploy
+## Step 5.5: Deploy
 
 ```bash
 npm run deploy
@@ -369,7 +184,7 @@ The Worker is deployed to:
 https://<MCP_HOSTNAME>/mcp
 ```
 
-#### Related commands
+### Related commands
 
 | Command | What it does |
 |---|---|
@@ -388,14 +203,14 @@ npx wrangler secret put ACCESS_CLIENT_SECRET
 > **Note**
 > `npm run deploy` **overwrites** production secrets with the values in `.dev.vars`. If you need different values locally and in production, switch to `deploy:no-secrets` for routine deploys and push secrets explicitly with `secrets:push`.
 
-### Step 5.6: Verify the Deployment
+## Step 5.6: Verify the Deployment
 
 1. Open `https://<MCP_HOSTNAME>/mcp` in a browser
 2. You should be redirected to the Cloudflare Access login screen
 3. Authenticate with your configured IdP
 4. After successful login, the MCP endpoint returns a JSON response
 
-### Step 5.7: Test with MCP Inspector
+## Step 5.7: Test with MCP Inspector
 
 ```bash
 npx @modelcontextprotocol/inspector@latest
@@ -407,6 +222,7 @@ npx @modelcontextprotocol/inspector@latest
 4. Click **Connect** → **List Tools** and confirm all tools appear
 
 ---
+
 
 ## Troubleshooting
 
@@ -424,3 +240,8 @@ npx @modelcontextprotocol/inspector@latest
 | `Space "..." not found` | `defaultSpace` or the `space` argument does not match a `name` in `spaces`. Check with `list_spaces` |
 | Deployed but no custom domain attached | You likely ran a bare `wrangler deploy`. Use `npm run deploy` |
 | Cannot return to `/callback` locally | Add `http://localhost:8788/callback` to the Access SaaS App redirect URLs (Step 4.2) |
+
+---
+
+- Back: [README](../README.md)
+- Other platform: [AWS](deploy-aws.md)
