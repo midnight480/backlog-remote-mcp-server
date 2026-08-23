@@ -18,6 +18,7 @@ import { registerSpaceTools } from "./tools/space-tools";
 import { registerStarTools } from "./tools/star-tools";
 import { registerStatusTools } from "./tools/status-tools";
 import { registerTeamTools } from "./tools/team-tools";
+import { registerUserTools } from "./tools/user-tools";
 import { registerWatchingTools } from "./tools/watching-tools";
 import { registerWebhookTools } from "./tools/webhook-tools";
 import { registerWikiTools } from "./tools/wiki-tools";
@@ -98,4 +99,5 @@ export function registerTools(server: McpServer, options: CreateServerOptions): 
 	registerCustomFieldTools(server, config);
 	registerTeamTools(server, config);
 	registerStarTools(server, config);
+	registerUserTools(server, config);
 }
