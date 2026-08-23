@@ -464,6 +464,33 @@ All tools accept an optional `space` parameter:
 - **Client consent**: Dynamic Client Registration is open to anyone, so authorization is gated behind a consent screen that names the client and its redirect target and requires a CSRF-protected approval. Approvals are keyed on `client_id` + `redirect_uri`, so re-registering with a different redirect target cannot inherit a prior approval
 - **Write guard**: Spaces marked `readOnly: true` reject every non-GET call. The check lives in the API-call layer of `src/core/backlog-client.ts`, so it does not depend on individual tool implementations
 - **Configuration isolation**: All environment-specific values live in `.dev.vars` (untracked). The repository contains placeholders only
+- **Dependency cooldown**: `.npmrc` sets `min-release-age=3`, so dependency resolution only considers package versions that have been public for at least three days. Malicious npm releases are typically published and taken down within a couple of days, and this avoids that window
+
+### Supply chain
+
+`.npmrc` pins a cooldown on dependency resolution:
+
+```ini
+min-release-age=3
+```
+
+npm will only pick versions that have been available for at least three days. The
+attack pattern this targets is a malicious version published (often over a weekend)
+and taken down a few days later — a cooldown means you never resolve to it.
+
+Two limits are worth knowing:
+
+- **It applies to resolution, not to `npm ci`.** `npm ci` installs exactly what
+  `package-lock.json` says. The cooldown protects the moment a version *enters* the
+  lockfile, which is where it matters; a compromised version already committed to the
+  lockfile is not caught by this.
+- **Three days is a floor, not a guarantee.** Campaigns that survive longer than the
+  window still get through. Raise the number if you want more margin; the cost is
+  lagging behind upstream fixes by that many days.
+
+Install scripts are the usual execution vector for these packages. npm 11 blocks them
+by default and lists what it skipped, so review that output rather than reflexively
+running `npm approve-scripts --all`.
 
 ### Operational notes
 
