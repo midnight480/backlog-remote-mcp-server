@@ -67,9 +67,13 @@ This file holds secrets and is already in `.gitignore`.
 ## 4. Deploy
 
 ```bash
+npm run gcp:validate # check syntax and types against the provider schema
 npm run gcp:plan     # show the diff without creating anything
 npm run gcp:deploy   # push the image, then terraform apply
 ```
+
+`gcp:validate` works without Google Cloud credentials. So does `gcp:plan` while no
+state exists yet — it shows 21 resources to create.
 
 `gcp:deploy` builds the image with Cloud Build, pushes it to Artifact Registry, and
 runs `terraform apply`.

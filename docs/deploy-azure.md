@@ -73,9 +73,13 @@ This file holds secrets and is already in `.gitignore`.
 ```bash
 export AZURE_RESOURCE_GROUP=rg-backlog-mcp
 
+npm run azure:validate  # compile the Bicep to check syntax and types
 npm run azure:what-if   # show the diff without creating anything
 npm run azure:deploy    # build and push the image with ACR, then deploy the Bicep
 ```
+
+`azure:validate` works without Azure credentials. `azure:what-if` needs a live
+subscription.
 
 `azure:deploy` builds with `az acr build`, so **it works without Docker installed
 locally**.
