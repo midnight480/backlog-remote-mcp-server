@@ -16,7 +16,7 @@
 		"deploy:no-secrets": "node scripts/build-deploy-config.mjs && wrangler deploy --config wrangler.deploy.json",
 		"test:aws-oauth": "tsx tests/aws-oauth-provider.test.mts",
 		"aws:build": "sam build --template infra/aws/template.yaml",
-		"aws:deploy": "sam build --template infra/aws/template.yaml && sam deploy --template-file .aws-sam/build/template.yaml --stack-name backlog-mcp-aws --capabilities CAPABILITY_IAM --resolve-s3 --no-confirm-changeset --no-fail-on-empty-changeset --parameter-overrides file://infra/aws/params.yaml",
+		"aws:deploy": "node scripts/aws-deploy.mjs",
 		"aws:validate": "sam validate --template infra/aws/template.yaml --lint",
 		"aws:secrets:push": "node scripts/aws-push-secrets.mjs",
 		"aws:secrets:dry-run": "node scripts/aws-push-secrets.mjs --dry-run",

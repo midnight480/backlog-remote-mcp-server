@@ -229,10 +229,30 @@ A browser opens for login; after that it checks `tools/list` and `get_space`.
 | `npm run aws:secrets:dry-run` | Show which secrets would be sent (values hidden) |
 | `npm run aws:request-cert` | Request an ACM certificate and wait for validation |
 
+## Region
+
+The default is `ap-northeast-1`. Precedence is the `--region` argument, then the
+`AWS_REGION` environment variable, then the default — the same order as
+`aws:secrets:push` and `aws:request-cert`.
+
+```bash
+npm run aws:deploy -- --region ap-northeast-1   # explicit
+AWS_REGION=ap-northeast-1 npm run aws:deploy    # via environment
+```
+
+**The AWS profile's default region is not used.** Previously `sam deploy` had no
+`--region`, so it targeted the profile default (e.g. `us-east-1`), either creating a
+second stack in the wrong region or failing on a certificate region mismatch.
+
+An ACM certificate cannot be referenced across regions, so the deploy stops before
+running if the target region and the region in `AcmCertificateArn`
+(`infra/aws/params.yaml`) disagree.
+
 ## Changing the stack name
 
-The default is `backlog-mcp-aws`. To change it, edit `--stack-name` in the `aws:deploy`
-script in `package.json`.
+The default is `backlog-mcp-aws`. To change it, run
+`npm run aws:deploy -- --stack <name>` or edit the default in
+`scripts/aws-deploy.mjs`.
 
 **CloudFormation cannot rename a stack.** Changing the name means deleting and
 recreating it. The API Gateway custom domain is recreated too, so the CNAME target
