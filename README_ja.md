@@ -15,18 +15,23 @@ Backlog を MCP (Model Context Protocol) 経由で操作するリモートサー
 
 ## デプロイ先を選ぶ
 
-| | Cloudflare Workers | AWS |
-|---|---|---|
-| 実行環境 | Workers (エッジ) | Lambda + API Gateway HTTP API |
-| MCP セッション | Durable Objects | ステートレス |
-| OAuth 認可サーバ | `@cloudflare/workers-oauth-provider` | MCP SDK の `mcpAuthRouter` |
-| 上流 IdP | Cloudflare Access | Amazon Cognito |
-| 状態保存 | Workers KV | DynamoDB (TTL) |
-| シークレット | Workers Secrets | Secrets Manager |
-| IaC | wrangler | AWS SAM |
-| 設定ファイル | `.dev.vars` | `infra/aws/params.yaml` |
+| | Cloudflare | AWS | Google Cloud |
+|---|---|---|---|
+| 実行環境 | Workers (エッジ) | Lambda + API Gateway | Cloud Run |
+| MCP セッション | Durable Objects | ステートレス | ステートレス |
+| OAuth 認可サーバ | `@cloudflare/workers-oauth-provider` | `src/oauth` (MCP SDK の `mcpAuthRouter`) | `src/oauth` |
+| 上流 IdP | Cloudflare Access | Amazon Cognito | Google アカウント |
+| 状態保存 | Workers KV | DynamoDB (TTL) | Firestore (TTL) |
+| シークレット | Workers Secrets | Secrets Manager | Secret Manager |
+| IaC | wrangler | AWS SAM | Terraform |
+| 設定ファイル | `.dev.vars` | `infra/aws/params.yaml` | `infra/gcp/terraform.tfvars` |
 
-提供されるツールと挙動はどちらも同じです。
+提供されるツールと挙動はどれも同じです。上流 IdP はどのプラットフォームでも
+Google と Microsoft Entra ID の両方を選べます。表にあるのは既定値です。
+
+- [Cloudflare へのデプロイ](docs/deploy-cloudflare_ja.md)
+- [AWS へのデプロイ](docs/deploy-aws_ja.md)
+- [Google Cloud へのデプロイ](docs/deploy-gcp_ja.md)
 
 ## 概算コスト
 
@@ -185,6 +190,17 @@ flowchart TB
         LAMBDA --- SM
     end
 
+    subgraph gcp["Google Cloud &nbsp;&nbsp; src/platforms/gcp"]
+        direction TB
+        RUN["Cloud Run &nbsp;&nbsp; <i>コンテナ</i>"]
+        GID["Google アカウント &nbsp;&nbsp; <i>OIDC</i>"]
+        FS["Firestore &nbsp;&nbsp; <i>OAuth の状態</i>"]
+        GSM["Secret Manager<br/><i>Backlog API キー</i>"]
+        RUN -. "OIDC" .-> GID
+        RUN --- FS
+        RUN --- GSM
+    end
+
     subgraph oauth["src/oauth &nbsp;&nbsp; Node 系で共通"]
         OP["provider.ts &nbsp;&nbsp; <i>OAuth 認可サーバ</i>"]
         OS["store.ts &nbsp;&nbsp; <i>AuthStore インターフェース</i>"]
@@ -208,10 +224,13 @@ flowchart TB
 
     clients == "Streamable HTTP + OAuth" ==> CFW
     clients == "Streamable HTTP + OAuth" ==> APIGW
+    clients == "Streamable HTTP + OAuth" ==> RUN
     CFDO --> CS
     LAMBDA --> OP
+    RUN --> OP
     OP --> CS
     DDB -. "AuthStore を実装" .-> OS
+    FS -. "AuthStore を実装" .-> OS
     BC == "スペースごとの API キー" ==> BLA
     BC ==> BLB
     BC ==> BLC
@@ -265,8 +284,10 @@ src/
   platforms/
     cloudflare/            Workers 向けの配線 (Workers 専用の OAuth 実装を使う)
     aws/                   Lambda 向けの配線 + DynamoDB / Secrets Manager アダプタ
+    gcp/                   Cloud Run 向けの配線 + Firestore / Secret Manager アダプタ
 infra/
   aws/                     SAM テンプレートとパラメータ
+  gcp/                     Terraform の設定
 ```
 
 再利用できる範囲で 3 層に分かれています。

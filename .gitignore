@@ -7,3 +7,9 @@ wrangler.deploy.json
 .mcpb-build/
 samconfig.toml
 infra/aws/params.yaml
+# Terraform (GCP)
+infra/gcp/terraform.tfvars
+infra/gcp/.terraform/
+infra/gcp/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
