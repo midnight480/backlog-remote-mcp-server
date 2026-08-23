@@ -22,7 +22,8 @@
 		"aws:secrets:dry-run": "node scripts/aws-push-secrets.mjs --dry-run",
 		"aws:request-cert": "node scripts/aws-request-cert.mjs",
 		"test:oauth-consent": "tsx tests/oauth-consent.test.mts",
-		"test": "npm run test:oauth && npm run test:oauth-consent && npm run test:aws-store",
+		"test:oauth-upstream": "tsx tests/oauth-upstream.test.mts",
+		"test": "npm run test:oauth && npm run test:oauth-consent && npm run test:oauth-upstream && npm run test:aws-store",
 		"test:aws-store": "tsx tests/aws-store.test.mts",
 		"mcpb:pack": "node scripts/build-mcpb.mjs"
 	},
