@@ -207,7 +207,7 @@ API を一切参照しません。プラットフォームを追加する場合�
 
 ```bash
 npm run mcpb:pack           # 単体で生成
-npm run aws:deploy          # デプロイのついでに生成 (Cloudflare は npm run deploy)
+npm run aws:deploy          # デプロイのついでに生成 (Cloudflare は npm run cloudflare:deploy)
 ```
 
 エンドポイント URL は `user_config` になっており、**デプロイ先のドメインが
@@ -296,7 +296,7 @@ Inspector画面で `https://<MCP_HOSTNAME>/mcp` を入力し、OAuth Settingsか
 ### 運用上の注意
 
 - `ALLOWED_EMAILS` がこのサーバーの実質的な認可境界です。Worker前段にZoneレベルのAccessアプリケーションは置かれていません
-- `npm run deploy` は `.dev.vars` の値を本番のシークレットとして**上書き**します。ローカルと本番で値を分けたくなった場合は `deploy:no-secrets` を通常のデプロイに使い、シークレット更新は `secrets:push` で明示的に行ってください
+- `npm run cloudflare:deploy` は `.dev.vars` の値を本番のシークレットとして**上書き**します。ローカルと本番で値を分けたくなった場合は `deploy:no-secrets` を通常のデプロイに使い、シークレット更新は `secrets:push` で明示的に行ってください
 - Backlog APIキーはキー所有者の権限をそのまま持ちます。書き込みが不要なスペースには読み取り専用のキーを発行し、あわせて `readOnly: true` を設定するのが確実です
 
 ## ローカル開発

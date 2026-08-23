@@ -166,7 +166,7 @@ If this passes, your Access configuration, PKCE setting, email allowlist, and Ba
 ## Step 5.5: Deploy
 
 ```bash
-npm run deploy
+npm run cloudflare:deploy
 ```
 
 This runs three steps in order:
@@ -176,7 +176,7 @@ This runs three steps in order:
 3. `wrangler deploy`
 
 > **Warning**
-> `wrangler.jsonc` contains neither the custom domain nor the KV ID. A bare `npx wrangler deploy` attaches no custom domain and fails on the placeholder KV ID. Always use `npm run deploy`.
+> `wrangler.jsonc` contains neither the custom domain nor the KV ID. A bare `npx wrangler deploy` attaches no custom domain and fails on the placeholder KV ID. Always use `npm run cloudflare:deploy`.
 
 The Worker is deployed to:
 
@@ -188,11 +188,11 @@ https://<MCP_HOSTNAME>/mcp
 
 | Command | What it does |
 |---|---|
-| `npm run deploy` | Generate config → upload secrets → deploy |
-| `npm run deploy:dry-run` | Generate and validate only (no upload) |
-| `npm run deploy:no-secrets` | Deploy without touching secrets |
-| `npm run secrets:push` | Upload secrets only |
-| `npm run secrets:dry-run` | Show which keys would be sent (values are never printed) |
+| `npm run cloudflare:deploy` | Generate config → upload secrets → deploy |
+| `npm run cloudflare:deploy:dry-run` | Generate and validate only (no upload) |
+| `npm run cloudflare:deploy:no-secrets` | Deploy without touching secrets |
+| `npm run cloudflare:secrets:push` | Upload secrets only |
+| `npm run cloudflare:secrets:dry-run` | Show which keys would be sent (values are never printed) |
 
 You can still set secrets individually:
 
@@ -201,7 +201,7 @@ npx wrangler secret put ACCESS_CLIENT_SECRET
 ```
 
 > **Note**
-> `npm run deploy` **overwrites** production secrets with the values in `.dev.vars`. If you need different values locally and in production, switch to `deploy:no-secrets` for routine deploys and push secrets explicitly with `secrets:push`.
+> `npm run cloudflare:deploy` **overwrites** production secrets with the values in `.dev.vars`. If you need different values locally and in production, switch to `deploy:no-secrets` for routine deploys and push secrets explicitly with `secrets:push`.
 
 ## Step 5.6: Verify the Deployment
 
@@ -238,7 +238,7 @@ npx @modelcontextprotocol/inspector@latest
 | `MCP_HOSTNAME is not set` / `OAUTH_KV_ID is not set` | The key is missing from `.dev.vars` or still holds a placeholder (Steps 5.2 / 5.3) |
 | `Space "..." is configured as read-only` | That space has `readOnly: true`. Remove it from `BACKLOG_SPACES_CONFIG` if writes are needed |
 | `Space "..." not found` | `defaultSpace` or the `space` argument does not match a `name` in `spaces`. Check with `list_spaces` |
-| Deployed but no custom domain attached | You likely ran a bare `wrangler deploy`. Use `npm run deploy` |
+| Deployed but no custom domain attached | You likely ran a bare `wrangler deploy`. Use `npm run cloudflare:deploy` |
 | Cannot return to `/callback` locally | Add `http://localhost:8788/callback` to the Access SaaS App redirect URLs (Step 4.2) |
 
 ---

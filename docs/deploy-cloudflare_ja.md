@@ -166,7 +166,7 @@ npm run check:local  # 別ターミナルで実行
 ## Step 5.5: デプロイ
 
 ```bash
-npm run deploy
+npm run cloudflare:deploy
 ```
 
 3ステップが順に実行されます。
@@ -176,7 +176,7 @@ npm run deploy
 3. `wrangler deploy`
 
 > **Warning**
-> `wrangler.jsonc` にはカスタムドメインもKV IDも含まれていません。素の `npx wrangler deploy` はカスタムドメインが付かず、KV IDもプレースホルダのままで失敗します。必ず `npm run deploy` を使ってください。
+> `wrangler.jsonc` にはカスタムドメインもKV IDも含まれていません。素の `npx wrangler deploy` はカスタムドメインが付かず、KV IDもプレースホルダのままで失敗します。必ず `npm run cloudflare:deploy` を使ってください。
 
 Workerは以下にデプロイされます。
 
@@ -188,11 +188,11 @@ https://<MCP_HOSTNAME>/mcp
 
 | コマンド | 動作 |
 |---|---|
-| `npm run deploy` | 設定生成 → シークレット登録 → デプロイ |
-| `npm run deploy:dry-run` | 設定生成と検証のみ (アップロードしない) |
-| `npm run deploy:no-secrets` | シークレットに触れずデプロイのみ |
-| `npm run secrets:push` | シークレット登録のみ |
-| `npm run secrets:dry-run` | 送信されるキー名の確認のみ (値は表示されません) |
+| `npm run cloudflare:deploy` | 設定生成 → シークレット登録 → デプロイ |
+| `npm run cloudflare:deploy:dry-run` | 設定生成と検証のみ (アップロードしない) |
+| `npm run cloudflare:deploy:no-secrets` | シークレットに触れずデプロイのみ |
+| `npm run cloudflare:secrets:push` | シークレット登録のみ |
+| `npm run cloudflare:secrets:dry-run` | 送信されるキー名の確認のみ (値は表示されません) |
 
 シークレットを個別に設定したい場合は従来の方法も使えます。
 
@@ -201,7 +201,7 @@ npx wrangler secret put ACCESS_CLIENT_SECRET
 ```
 
 > **Note**
-> `npm run deploy` は `.dev.vars` の値で本番のシークレットを**上書き**します。ローカルと本番で値を分けたくなった場合は、通常のデプロイに `deploy:no-secrets` を使い、シークレット更新は `secrets:push` で明示的に行う運用に切り替えてください。
+> `npm run cloudflare:deploy` は `.dev.vars` の値で本番のシークレットを**上書き**します。ローカルと本番で値を分けたくなった場合は、通常のデプロイに `deploy:no-secrets` を使い、シークレット更新は `secrets:push` で明示的に行う運用に切り替えてください。
 
 ## Step 5.6: 動作確認
 
@@ -238,7 +238,7 @@ npx @modelcontextprotocol/inspector@latest
 | `MCP_HOSTNAME が未設定です` / `OAUTH_KV_ID が未設定です` | `.dev.vars` に該当キーがないか、プレースホルダのままです (Step 5.2 / 5.3) |
 | `Space "..." is configured as read-only` | そのスペースに `readOnly: true` が設定されています。書き込みが必要なら `BACKLOG_SPACES_CONFIG` から外してください |
 | `Space "..." not found` | `defaultSpace` または `space` 引数が `spaces` 内の `name` と一致していません。`list_spaces` で確認できます |
-| デプロイしたがカスタムドメインが付かない | 素の `wrangler deploy` を実行していませんか。`npm run deploy` を使ってください |
+| デプロイしたがカスタムドメインが付かない | 素の `wrangler deploy` を実行していませんか。`npm run cloudflare:deploy` を使ってください |
 | ローカルで `/callback` に戻れない | Access SaaS Appのリダイレクトに `http://localhost:8788/callback` を追加してください (Step 4.2) |
 
 ---

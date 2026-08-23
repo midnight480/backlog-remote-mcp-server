@@ -208,7 +208,7 @@ Instead of hand-editing the JSON above, you can double-click a `.mcpb`
 
 ```bash
 npm run mcpb:pack           # generate on its own
-npm run aws:deploy          # generated as part of the deploy (Cloudflare: npm run deploy)
+npm run aws:deploy          # generated as part of the deploy (Cloudflare: npm run cloudflare:deploy)
 ```
 
 The endpoint URL is a `user_config` field, and **the domain you deployed to is
@@ -297,7 +297,7 @@ All tools accept an optional `space` parameter:
 ### Operational notes
 
 - `ALLOWED_EMAILS` is the effective authorization boundary for this server. There is no zone-level Access application in front of the Worker
-- `npm run deploy` **overwrites** production secrets with the values in `.dev.vars`. If you need different values locally and in production, use `deploy:no-secrets` for routine deploys and push secrets explicitly with `secrets:push`
+- `npm run cloudflare:deploy` **overwrites** production secrets with the values in `.dev.vars`. If you need different values locally and in production, use `deploy:no-secrets` for routine deploys and push secrets explicitly with `secrets:push`
 - A Backlog API key carries the full permissions of its owner. For spaces that need no writes, issue a read-only key *and* set `readOnly: true`
 
 ## Local Development
