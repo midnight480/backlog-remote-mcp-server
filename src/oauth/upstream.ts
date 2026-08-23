@@ -1,18 +1,27 @@
 // oauth/upstream.ts
-// 上流 OIDC プロバイダとの連携 (AWS では Cognito、Azure なら Entra ID など)。
-// Cloudflare 版の access-handler.ts が Cloudflare Access に対して行っていることの AWS 版。
+// 上流 OIDC プロバイダとの連携。
+// Cloudflare 版の access-handler.ts が Cloudflare Access に対して行っていることを、
+// Node 系の実行環境向けに実装したもの。
 //
-// Cognito は動的クライアント登録 (RFC 7591) に対応しないため、認可サーバとしては
-// 使えない。ここでは「ユーザー認証だけを担う上流 IdP」として扱い、MCP クライアント
-// 向けの認可サーバは自前 (MCP SDK の mcpAuthRouter) で提供する。
+// 多くのマネージド IdP は動的クライアント登録 (RFC 7591) に対応しないため、
+// 認可サーバとしては使えない。ここでは「ユーザー認証だけを担う上流 IdP」として扱い、
+// MCP クライアント向けの認可サーバは自前 (MCP SDK の mcpAuthRouter) で提供する。
+//
+// エンドポイントの位置は IdP ごとに違う。Cognito は domain 配下の /oauth2/* に
+// 揃っているが、Google と Entra ID は authorize / token / JWKS がそれぞれ別ホスト
+// または別パスにある。そのため個別に指定できるようにし、未指定のときだけ
+// Cognito 形式を既定として組み立てる。
 
 import { Buffer } from "node:buffer";
 import { createHash, randomBytes } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 export interface UpstreamConfig {
-	/** 例: https://<domain>.auth.ap-northeast-1.amazoncognito.com */
-	domain: string;
+	/**
+	 * IdP のベース URL。例: https://<domain>.auth.ap-northeast-1.amazoncognito.com
+	 * authorizationEndpoint / tokenEndpoint を明示する場合は使われない。
+	 */
+	domain?: string;
 	clientId: string;
 	clientSecret?: string;
 	/** ID トークン検証用。例: https://cognito-idp.<region>.amazonaws.com/<userPoolId> */
@@ -20,6 +29,37 @@ export interface UpstreamConfig {
 	/** このサーバ自身の /callback の絶対 URL */
 	redirectUri: string;
 	scopes?: string[];
+	/** 認可エンドポイントの絶対 URL。未指定なら `${domain}/oauth2/authorize` */
+	authorizationEndpoint?: string;
+	/** トークンエンドポイントの絶対 URL。未指定なら `${domain}/oauth2/token` */
+	tokenEndpoint?: string;
+	/** JWKS の絶対 URL。未指定なら `${issuer}/.well-known/jwks.json` */
+	jwksUri?: string;
+}
+
+/** domain と個別指定のどちらからでもエンドポイントを解決する */
+function endpoint(cfg: UpstreamConfig, explicit: string | undefined, path: string): string {
+	if (explicit) return explicit;
+	if (!cfg.domain) {
+		throw new Error(
+			`Upstream config needs either domain or an explicit endpoint for ${path}.`,
+		);
+	}
+	return new URL(path, cfg.domain).toString();
+}
+
+export function authorizationEndpointOf(cfg: UpstreamConfig): string {
+	return endpoint(cfg, cfg.authorizationEndpoint, "/oauth2/authorize");
+}
+
+export function tokenEndpointOf(cfg: UpstreamConfig): string {
+	return endpoint(cfg, cfg.tokenEndpoint, "/oauth2/token");
+}
+
+export function jwksUriOf(cfg: UpstreamConfig): string {
+	// Cognito は issuer 直下に JWKS を置くが、Google は www.googleapis.com、
+	// Entra ID は /discovery/v2.0/keys と、issuer から機械的に導けない。
+	return cfg.jwksUri ?? `${cfg.issuer.replace(/\/$/, "")}/.well-known/jwks.json`;
 }
 
 export const b64url = (b: Buffer) => b.toString("base64url");
@@ -31,7 +71,7 @@ export function createPkcePair(): { verifier: string; challenge: string } {
 }
 
 export function buildAuthorizeUrl(cfg: UpstreamConfig, state: string, challenge: string): string {
-	const url = new URL("/oauth2/authorize", cfg.domain);
+	const url = new URL(authorizationEndpointOf(cfg));
 	url.search = new URLSearchParams({
 		response_type: "code",
 		client_id: cfg.clientId,
@@ -66,13 +106,13 @@ export async function exchangeUpstreamCode(
 	const headers: Record<string, string> = {
 		"Content-Type": "application/x-www-form-urlencoded",
 	};
-	// Cognito のアプリクライアントに secret がある場合は Basic 認証で送る
+	// クライアント secret がある場合は Basic 認証で送る
 	if (cfg.clientSecret) {
 		const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
 		headers.Authorization = `Basic ${basic}`;
 	}
 
-	const res = await fetch(new URL("/oauth2/token", cfg.domain), {
+	const res = await fetch(tokenEndpointOf(cfg), {
 		method: "POST",
 		headers,
 		body,
@@ -97,10 +137,10 @@ export interface UpstreamIdentity {
 // モジュールスコープで保持したほうが効率がよい。
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
-function jwksFor(issuer: string) {
-	let jwks = jwksCache.get(issuer);
+function jwksFor(uri: string) {
+	let jwks = jwksCache.get(uri);
 	if (!jwks) {
-		jwks = createRemoteJWKSet(new URL(`${issuer.replace(/\/$/, "")}/.well-known/jwks.json`), {
+		jwks = createRemoteJWKSet(new URL(uri), {
 			// jose の既定は AbortSignal.timeout(5000)。この 5 秒タイマーは fetch 完了後も
 			// イベントループに残り、Lambda が応答を返した後に保留状態で凍結されるため、
 			// ランタイムが Runtime.NodeJsExit として検出する。
@@ -110,7 +150,7 @@ function jwksFor(issuer: string) {
 			cacheMaxAge: 600_000,
 			cooldownDuration: 30_000,
 		});
-		jwksCache.set(issuer, jwks);
+		jwksCache.set(uri, jwks);
 	}
 	return jwks;
 }
@@ -120,7 +160,7 @@ export async function verifyIdToken(
 	cfg: UpstreamConfig,
 	idToken: string,
 ): Promise<UpstreamIdentity> {
-	const { payload } = await jwtVerify(idToken, jwksFor(cfg.issuer), {
+	const { payload } = await jwtVerify(idToken, jwksFor(jwksUriOf(cfg)), {
 		issuer: cfg.issuer,
 		audience: cfg.clientId,
 	});
