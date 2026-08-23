@@ -26,7 +26,7 @@
 	// カスタムドメインはここに書かない。デプロイ時に MCP_HOSTNAME から
 	// wrangler.deploy.json へ注入される (scripts/build-deploy-config.mjs)。
 	// 素の `wrangler deploy` ではカスタムドメインが付かないので必ず
-	// `npm run deploy` を使うこと。
+	// `npm run cloudflare:deploy` を使うこと。
 	"observability": {
 		"enabled": true
 	},

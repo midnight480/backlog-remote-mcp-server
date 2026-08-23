@@ -85,7 +85,7 @@ function main() {
 		console.error(
 			"✘ MCP_HOSTNAME が未設定です。\n" +
 				"  .dev.vars に MCP_HOSTNAME=your-worker.example.com を追加するか、\n" +
-				"  MCP_HOSTNAME=... npm run deploy のように環境変数で渡してください。",
+				"  MCP_HOSTNAME=... npm run cloudflare:deploy のように環境変数で渡してください。",
 		);
 		process.exit(1);
 	}
