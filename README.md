@@ -150,15 +150,94 @@ Troubleshooting sections live at the end of each deployment guide.
 
 ## Architecture
 
+The same MCP server runs on two platforms. Everything above the dashed line is
+shared code; below it is per-platform wiring.
+
+```mermaid
+flowchart TB
+    subgraph clients["MCP clients"]
+        direction LR
+        CC["Claude Code<br/><i>native HTTP transport</i>"]
+        CD["Claude Desktop / Kiro / Cursor<br/><i>mcp-remote proxy or .mcpb</i>"]
+    end
+
+    subgraph cf["Cloudflare &nbsp;&nbsp; src/platforms/cloudflare"]
+        direction TB
+        CFW["Workers &nbsp;&nbsp; <i>OAuthProvider</i>"]
+        CFA["Cloudflare Access<br/><i>or Google / Entra ID</i>"]
+        CFKV["KV &nbsp;&nbsp; <i>OAUTH_KV</i>"]
+        CFDO["Durable Object<br/><i>BacklogMCP session</i>"]
+        CFW -. "OIDC" .-> CFA
+        CFW --- CFKV
+        CFW --> CFDO
+    end
+
+    subgraph aws["AWS &nbsp;&nbsp; src/platforms/aws"]
+        direction TB
+        APIGW["API Gateway<br/><i>HTTP API + ACM + Route 53</i>"]
+        LAMBDA["Lambda &nbsp;&nbsp; <i>nodejs22 / arm64</i>"]
+        COG["Amazon Cognito<br/><i>+ Google IdP</i>"]
+        DDB["DynamoDB &nbsp;&nbsp; <i>OAuth state</i>"]
+        SM["Secrets Manager<br/><i>Backlog API keys</i>"]
+        APIGW --> LAMBDA
+        LAMBDA -. "OIDC" .-> COG
+        LAMBDA --- DDB
+        LAMBDA --- SM
+    end
+
+    subgraph shared["src/core &nbsp;&nbsp; runtime independent"]
+        direction TB
+        CS["create-server.ts<br/><i>tool registration + email allowlist</i>"]
+        TOOLS["tools/ &nbsp;&nbsp; <i>158 MCP tools</i>"]
+        BC["backlog-client.ts<br/><i>space routing + readOnly guard</i>"]
+        CS --> TOOLS --> BC
+    end
+
+    subgraph backlog["Backlog"]
+        direction LR
+        BLA["Space A"]
+        BLB["Space B"]
+        BLC["Space C ..."]
+    end
+
+    clients == "Streamable HTTP + OAuth" ==> CFW
+    clients == "Streamable HTTP + OAuth" ==> APIGW
+    CFDO --> CS
+    LAMBDA --> CS
+    BC == "per-space API key" ==> BLA
+    BC ==> BLB
+    BC ==> BLC
 ```
-MCP client (Claude, Kiro, Cursor, ...)
-    ↓ Streamable HTTP + OAuth
-Runtime (Cloudflare Workers or AWS Lambda)
-    ↓ Upstream IdP (Cloudflare Access or Amazon Cognito)
-    ↓ Email allowlist check
-    ↓ Backlog API key routing
-Backlog space A / B / C ...
+
+### Request flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as MCP client
+    participant S as Worker / Lambda
+    participant I as Upstream IdP
+    participant B as Backlog
+
+    C->>S: POST /mcp
+    S-->>C: 401 + OAuth metadata
+    C->>S: authorize
+    S->>I: redirect to upstream OIDC
+    I-->>S: callback with identity
+    Note over S: email allowlist check<br/>reject -> access_denied tool only
+    S-->>C: access token
+    C->>S: tools/list, tools/call
+    Note over S: resolve space -> pick API key<br/>readOnly guard blocks writes
+    S->>B: Backlog REST API v2
+    B-->>S: JSON
+    S-->>C: MCP result
 ```
+
+Authorization happens in two layers. The upstream IdP decides **who** may sign in,
+and the email allowlist decides **who gets tools**: a user outside the allowlist
+receives a server exposing only `access_denied`. The `readOnly` flag on a space
+rejects every non-GET request in the API client layer, so it cannot be bypassed by
+an individual tool.
 
 ### Directory layout
 
@@ -180,7 +259,6 @@ infra/
 `src/core` depends only on `@modelcontextprotocol/sdk` and `zod` and references no
 runtime-specific API. Adding a platform means adding an adapter under
 `src/platforms/` while sharing the same tool implementations.
-
 ## Connecting from MCP Clients
 
 ### Claude Desktop / Kiro / Cursor (via mcp-remote proxy)
