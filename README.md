@@ -457,7 +457,9 @@ All tools accept an optional `space` parameter:
 ## Security
 
 - **Authentication**: Cloudflare Access → Google / Microsoft Entra ID. The entire OAuth flow is managed by Cloudflare
-- **Authorization**: `ALLOWED_EMAILS` provides an application-level email allowlist
+- **Authorization**: `ALLOWED_EMAILS` provides an application-level email allowlist.
+  **Leaving it empty disables the allowlist**, so anyone who can sign in through the
+  upstream IdP gets every tool
 - **Double-check**: Access Policy (Cloudflare side) + in-app allowlist (Worker side)
 - **API Key Protection**: Backlog API keys are stored in Cloudflare Secrets and never exposed to clients
 - **PKCE + CSRF**: OAuth flow is protected with PKCE (S256) and CSRF tokens
