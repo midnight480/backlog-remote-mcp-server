@@ -11,6 +11,7 @@ import { registerDocumentTools } from "./tools/document-tools";
 import { registerCustomFieldTools } from "./tools/custom-field-tools";
 import { registerFileTools } from "./tools/file-tools";
 import { registerGitTools } from "./tools/git-tools";
+import { registerIssueMetadataTools } from "./tools/issue-metadata-tools";
 import { registerIssueTools } from "./tools/issue-tools";
 import { registerNotificationTools } from "./tools/notification-tools";
 import { registerProjectTools } from "./tools/project-tools";
@@ -100,4 +101,5 @@ export function registerTools(server: McpServer, options: CreateServerOptions): 
 	registerTeamTools(server, config);
 	registerStarTools(server, config);
 	registerUserTools(server, config);
+	registerIssueMetadataTools(server, config);
 }
