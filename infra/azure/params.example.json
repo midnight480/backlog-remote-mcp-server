@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "name":                 { "value": "backlog-mcp" },
+    "image":                { "value": "myacr.azurecr.io/backlog-mcp:latest" },
+    "registryServer":       { "value": "myacr.azurecr.io" },
+    "publicBaseUrl":        { "value": "https://backlog-mcp.example.com" },
+    "allowedEmails":        { "value": "[\"you@example.com\"]" },
+    "upstreamIdp":          { "value": "entra" },
+    "upstreamClientId":     { "value": "00000000-1111-2222-3333-444444444444" },
+    "upstreamClientSecret": { "value": "<TODO: Entra ID アプリのクライアント secret>" },
+    "backlogSpacesConfig":  { "value": "{\"spaces\":[{\"name\":\"example\",\"domain\":\"example.backlog.com\",\"apiKey\":\"xxx\"}],\"defaultSpace\":\"example\"}" }
+  }
+}

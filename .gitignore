@@ -13,3 +13,6 @@ infra/gcp/.terraform/
 infra/gcp/.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
+
+# Azure
+infra/azure/params.json

@@ -15,16 +15,16 @@ English | [日本語](README_ja.md)
 
 ## Choosing a deployment
 
-| | Cloudflare | AWS | Google Cloud |
-|---|---|---|---|
-| Runtime | Workers (edge) | Lambda + API Gateway | Cloud Run |
-| MCP session | Durable Objects | Stateless | Stateless |
-| OAuth authorization server | `@cloudflare/workers-oauth-provider` | `src/oauth` (MCP SDK `mcpAuthRouter`) | `src/oauth` |
-| Upstream IdP | Cloudflare Access | Amazon Cognito | Google account |
-| State storage | Workers KV | DynamoDB (TTL) | Firestore (TTL) |
-| Secrets | Workers Secrets | Secrets Manager | Secret Manager |
-| IaC | wrangler | AWS SAM | Terraform |
-| Config file | `.dev.vars` | `infra/aws/params.yaml` | `infra/gcp/terraform.tfvars` |
+| | Cloudflare | AWS | Google Cloud | Azure |
+|---|---|---|---|---|
+| Runtime | Workers (edge) | Lambda + API Gateway | Cloud Run | Container Apps |
+| MCP session | Durable Objects | Stateless | Stateless | Stateless |
+| OAuth authorization server | `@cloudflare/workers-oauth-provider` | `src/oauth` | `src/oauth` | `src/oauth` |
+| Upstream IdP | Cloudflare Access | Amazon Cognito | Google account | Microsoft Entra ID |
+| State storage | Workers KV | DynamoDB (TTL) | Firestore (TTL) | Cosmos DB (TTL) |
+| Secrets | Workers Secrets | Secrets Manager | Secret Manager | Key Vault |
+| IaC | wrangler | AWS SAM | Terraform | Bicep |
+| Config file | `.dev.vars` | `infra/aws/params.yaml` | `infra/gcp/terraform.tfvars` | `infra/azure/params.json` |
 
 The tools and their behavior are identical on all of them. Every platform can use
 either Google or Microsoft Entra ID as its upstream IdP; the table shows the default.
@@ -32,6 +32,7 @@ either Google or Microsoft Entra ID as its upstream IdP; the table shows the def
 - [Deploying to Cloudflare](docs/deploy-cloudflare.md)
 - [Deploying to AWS](docs/deploy-aws.md)
 - [Deploying to Google Cloud](docs/deploy-gcp.md)
+- [Deploying to Azure](docs/deploy-azure.md)
 
 ## Estimated Cost
 
@@ -202,6 +203,17 @@ flowchart TB
         RUN --- GSM
     end
 
+    subgraph azure["Azure &nbsp;&nbsp; src/platforms/azure"]
+        direction TB
+        ACA["Container Apps &nbsp;&nbsp; <i>container</i>"]
+        ENT["Entra ID &nbsp;&nbsp; <i>OIDC</i>"]
+        COS["Cosmos DB &nbsp;&nbsp; <i>OAuth state</i>"]
+        AKV["Key Vault<br/><i>Backlog API keys</i>"]
+        ACA -. "OIDC" .-> ENT
+        ACA --- COS
+        ACA --- AKV
+    end
+
     subgraph oauth["src/oauth &nbsp;&nbsp; shared by Node runtimes"]
         OP["provider.ts &nbsp;&nbsp; <i>OAuth authorization server</i>"]
         OS["store.ts &nbsp;&nbsp; <i>AuthStore interface</i>"]
@@ -226,12 +238,15 @@ flowchart TB
     clients == "Streamable HTTP + OAuth" ==> CFW
     clients == "Streamable HTTP + OAuth" ==> APIGW
     clients == "Streamable HTTP + OAuth" ==> RUN
+    clients == "Streamable HTTP + OAuth" ==> ACA
     CFDO --> CS
     LAMBDA --> OP
     RUN --> OP
+    ACA --> OP
     OP --> CS
     DDB -. "implements AuthStore" .-> OS
     FS -. "implements AuthStore" .-> OS
+    COS -. "implements AuthStore" .-> OS
     BC == "per-space API key" ==> BLA
     BC ==> BLB
     BC ==> BLC
@@ -287,9 +302,11 @@ src/
     cloudflare/            Workers wiring (uses its own Workers OAuth provider)
     aws/                   Lambda wiring + DynamoDB / Secrets Manager adapters
     gcp/                   Cloud Run wiring + Firestore / Secret Manager adapters
+    azure/                 Container Apps wiring + Cosmos DB / Key Vault adapters
 infra/
   aws/                     SAM template and parameters
   gcp/                     Terraform configuration
+  azure/                   Bicep template and parameters
 ```
 
 Three layers, by how widely each one can be reused:
