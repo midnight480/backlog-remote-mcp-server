@@ -43,6 +43,8 @@ Google と Microsoft Entra ID の両方を選べます。表にあるのは既�
 > - [Cloudflare Zero Trust の料金](https://www.cloudflare.com/plans/zero-trust-services/)
 > - [Cloudflare Workers の料金](https://developers.cloudflare.com/workers/platform/pricing/)
 > - [AWS Pricing Calculator](https://calculator.aws/#/addService)
+> - [Google Cloud 料金計算ツール](https://cloud.google.com/products/calculator)
+> - [Azure 料金計算ツール](https://azure.microsoft.com/pricing/calculator/)
 
 ### 前提
 
@@ -54,30 +56,41 @@ Google と Microsoft Entra ID の両方を選べます。表にあるのは既�
 | MCP リクエスト | 月 3,000 回程度 |
 | Backlog スペース | 3 つ |
 | ログ保持 | 30 日 |
+| リージョン | 東京 (`ap-northeast-1` / `asia-northeast1` / `japaneast`) |
 
 ### 固定費 (使わなくてもかかる)
 
-| | Cloudflare | AWS |
-|---|---|---|
-| 実行環境 | $0 (Free プランで可) | $0 |
-| 認証基盤 | $0 (Zero Trust 50 名まで無料) | $0 (Cognito 無料枠内) |
-| シークレット | $0 (Workers Secrets は無料) | **約 $0.80** (Secrets Manager × 2) |
-| 証明書 | $0 | $0 (ACM の公開証明書は無料) |
-| **合計** | **$0** | **約 $1/月** |
+| | Cloudflare | AWS | Google Cloud | Azure |
+|---|---|---|---|---|
+| 実行環境 | $0 (Free プランで可) | $0 | $0 (`min_instances = 0`) | $0 (`minReplicas = 0`) |
+| 認証基盤 | $0 (Zero Trust 50 名まで無料) | $0 (Cognito 無料枠内) | $0 (Google サインイン) | $0 (Entra ID 無料枠) |
+| シークレット | $0 (Workers Secrets は無料) | **約 $0.80** (Secrets Manager × 2) | $0 (3 バージョン、無料枠内) | $0 (Key Vault は操作数課金) |
+| コンテナレジストリ | 不要 | 不要 | $0 (Artifact Registry、0.5 GB まで無料) | **約 $5** (ACR Basic、$0.1666/日) |
+| 証明書 | $0 | $0 (ACM の公開証明書は無料) | $0 (Cloud Run が管理) | $0 (Container Apps が管理) |
+| **合計** | **$0** | **約 $1/月** | **約 $0** | **約 $5/月** |
 
-**AWS 側の固定費はほぼ Secrets Manager だけです。** 1 シークレットあたり月額課金のため、
-使わなくても発生します。Cloudflare 側は Workers Secrets が無料なので固定費がありません。
+固定費の出どころは、どのプラットフォームも 1 か所だけです。
+
+- **AWS** — Secrets Manager。1 シークレットあたり月額課金なので、使わなくても発生します。
+- **Azure** — コンテナレジストリ。ACR には無料枠がなく、イメージが 1 つでも Basic の
+  日額が発生します。`image` を GHCR などの無料レジストリに向ければ回避できますが、
+  レジストリの資格情報を自分で管理することになります。
+- **Cloudflare / Google Cloud** — なし。Workers Secrets は無料で、Google の
+  Secret Manager は本プロジェクトが保存する 3 バージョンなら無料枠に収まります。
+
+なお **Key Vault は AWS の Secrets Manager と違い、シークレット単位の月額課金が
+ありません。** 1 万操作あたりの課金で、本サーバは初回取得後にキャッシュします。
 
 ### 従量課金の主な対象
 
-| | Cloudflare | AWS |
-|---|---|---|
-| リクエスト | Workers | Lambda + API Gateway |
-| 状態保存 | Durable Objects + KV | DynamoDB |
-| ログ | Workers Logs | CloudWatch Logs |
+| | Cloudflare | AWS | Google Cloud | Azure |
+|---|---|---|---|---|
+| リクエスト | Workers | Lambda + API Gateway | Cloud Run | Container Apps |
+| 状態保存 | Durable Objects + KV | DynamoDB | Firestore | Cosmos DB (サーバーレス) |
+| ログ | Workers Logs | CloudWatch Logs | Cloud Logging | Log Analytics |
 
-上記の想定 (月 3,000 リクエスト) であれば、**どちらも各サービスの無料枠に収まる**
-規模です。API Gateway HTTP API には恒久的な無料枠がないため、AWS 側は
+上記の想定 (月 3,000 リクエスト) であれば、**4 つとも各サービスの無料枠に収まる**
+規模です。例外は API Gateway HTTP API で、恒久的な無料枠がないため AWS 側だけ
 リクエスト数に比例してわずかに課金されます (100 万リクエストあたり $1 程度)。
 
 ### 押さえておきたい分岐点
@@ -105,16 +118,32 @@ Lambda には月 100 万リクエスト / 40 万 GB 秒の恒久的な無料枠�
 ログは取り込み量に対して課金されます。本テンプレートは保持期間を
 `LogRetentionDays` (既定 30 日) で明示的に管理しており、無期限に蓄積しません。
 
+**Google Cloud / Azure — ゼロ課金の代償はコールドスタート**
+
+どちらも既定でゼロまでスケールインするため、使っていない間は課金されませんが、
+しばらく空いた後の最初のリクエストはコンテナ起動を待つことになります。
+`min_instances` / `minReplicas` を 1 にすれば解消しますが、**これが「ほぼ $0」を
+実費に変える最大の要因**です。小さいインスタンスを 1 つ常時起動すると、
+どちらも月 $10〜20 程度かかります。
+
+**Google Cloud / Azure — 人数に対する認証コストがない**
+
+Google アカウントや Entra ID でのサインインは、この用途ではユーザー単位の課金が
+発生しません。Cloudflare の 50 名ラインと違い、**人数は費用を左右する変数に
+なりません**。
+
 ### まとめ
 
-| 規模 | Cloudflare | AWS |
-|---|---|---|
-| 個人利用 | ほぼ $0 | 月 $1 程度 |
-| 数十名 (50 名以下) | ほぼ $0〜$5 | 月 $1〜数ドル |
-| 51 名以上 | Zero Trust がユーザー単位課金に | Cognito 無料枠 (MAU) 次第 |
+| 規模 | Cloudflare | AWS | Google Cloud | Azure |
+|---|---|---|---|---|
+| 個人利用 | ほぼ $0 | 約 $1/月 | ほぼ $0 | 約 $5/月 |
+| 数名〜50 名 | ほぼ $0〜$5 | $1〜数ドル/月 | ほぼ $0〜$2 | 約 $5〜7/月 |
+| 51 名以上 | Zero Trust がユーザー単位課金へ | Cognito の MAU 無料枠次第 | ユーザー単位の課金なし | ユーザー単位の課金なし |
 
-**少人数なら Cloudflare のほうが安く、固定費もありません。** AWS は Secrets Manager の
-固定費が乗りますが、既存の AWS 環境に寄せたい場合や IAM で統制したい場合には利点があります。
+**小規模なら Cloudflare と Google Cloud が最も安く、固定費もありません。**
+AWS は Secrets Manager、Azure はレジストリの固定費を抱えますが、既存の環境に
+寄せたい場合や、そのクラウドの IAM でアクセスを統制したい場合には見合います。
+50 名を超えると費用が人数に比例して増えるのは Cloudflare だけです。
 
 ## セットアップ
 
