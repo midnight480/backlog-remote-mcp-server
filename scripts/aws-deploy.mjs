@@ -98,6 +98,10 @@ function main() {
 		"--parameter-overrides",
 		`file://${PARAMS_REL}`,
 	]);
+
+	// デプロイ先のドメインを埋めた .mcpb を作る。ここでの失敗はデプロイ自体を
+	// 巻き戻すものではないので --soft-fail で警告に留める。
+	run("node", ["scripts/build-mcpb.mjs", "--soft-fail"]);
 }
 
 main();

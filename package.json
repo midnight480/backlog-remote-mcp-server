@@ -4,7 +4,7 @@
 	"private": true,
 	"scripts": {
 		"dev": "wrangler dev",
-		"deploy": "node scripts/build-deploy-config.mjs && node scripts/push-secrets.mjs && wrangler deploy --config wrangler.deploy.json",
+		"deploy": "node scripts/build-deploy-config.mjs && node scripts/push-secrets.mjs && wrangler deploy --config wrangler.deploy.json && node scripts/build-mcpb.mjs --soft-fail",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"type-check": "tsc -p tsconfig.cloudflare.json && tsc -p tsconfig.aws.json",
@@ -23,7 +23,8 @@
 		"aws:request-cert": "node scripts/aws-request-cert.mjs",
 		"test:aws-consent": "tsx tests/aws-consent.test.mts",
 		"test": "npm run test:aws-oauth && npm run test:aws-consent && npm run test:aws-store",
-		"test:aws-store": "tsx tests/aws-store.test.mts"
+		"test:aws-store": "tsx tests/aws-store.test.mts",
+		"mcpb:pack": "node scripts/build-mcpb.mjs"
 	},
 	"dependencies": {
 		"@aws-sdk/client-dynamodb": "^3.1116.0",

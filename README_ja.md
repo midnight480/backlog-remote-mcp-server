@@ -200,6 +200,36 @@ API を一切参照しません。プラットフォームを追加する場合�
 
 初回接続時にブラウザが開き、認証を求められます。
 
+### Claude Desktop (.mcpb バンドル)
+
+上の JSON を手で書く代わりに、`.mcpb` (MCP Bundle) をダブルクリックで
+インストールできます。デプロイ時に自動生成され、`dist/` に出力されます。
+
+```bash
+npm run mcpb:pack           # 単体で生成
+npm run aws:deploy          # デプロイのついでに生成 (Cloudflare は npm run deploy)
+```
+
+エンドポイント URL は `user_config` になっており、**デプロイ先のドメインが
+既定値として埋め込まれます**。フォークして自分の環境にデプロイした場合は、
+そのデプロイ先が既定値になります。インストール時に画面から変更もできます。
+
+ホスト名の解決順は次のとおりです。
+
+1. `--host` 引数
+2. `MCP_HOSTNAME` 環境変数 (Cloudflare デプロイと共通)
+3. `infra/aws/params.yaml` の `ApiDomainName` (AWS デプロイ)
+4. `.dev.vars` の `MCP_HOSTNAME`
+
+**バンドルにサーバ本体は入っていません。** MCPB はローカル実行専用の形式で、
+manifest の `server.type` は `node` / `python` / `binary` / `uv` しかなく、
+リモートの MCP サーバを直接指す型が存在しないためです。中身は
+`mcp-remote` を stdio プロキシとして同梱したもので、そこからデプロイ済みの
+サーバへ繋ぎます。実行時に `npx` でネットワークを叩かないよう、
+`mcp-remote` は同梱済みです。
+
+Claude Code はこのバンドルを使いません (`claude mcp add --transport http` のまま)。
+
 ### MCP Inspector (テスト用)
 
 ```bash

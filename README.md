@@ -201,6 +201,36 @@ runtime-specific API. Adding a platform means adding an adapter under
 
 On first connection, a browser window opens for authentication.
 
+### Claude Desktop (.mcpb bundle)
+
+Instead of hand-editing the JSON above, you can double-click a `.mcpb`
+(MCP Bundle) to install it. It is generated during deploy and written to `dist/`.
+
+```bash
+npm run mcpb:pack           # generate on its own
+npm run aws:deploy          # generated as part of the deploy (Cloudflare: npm run deploy)
+```
+
+The endpoint URL is a `user_config` field, and **the domain you deployed to is
+baked in as its default**. If you fork this and deploy to your own environment,
+your deployment becomes the default. It can still be changed at install time.
+
+Host name resolution order:
+
+1. the `--host` argument
+2. the `MCP_HOSTNAME` environment variable (shared with the Cloudflare deploy)
+3. `ApiDomainName` in `infra/aws/params.yaml` (AWS deploy)
+4. `MCP_HOSTNAME` in `.dev.vars`
+
+**The bundle does not contain the server itself.** MCPB is a local-execution
+format: a manifest's `server.type` can only be `node`, `python`, `binary` or
+`uv`, and there is no type that points at a remote MCP server. The bundle ships
+`mcp-remote` as a local stdio proxy that connects to your deployed server.
+`mcp-remote` is vendored into the bundle so nothing is fetched over the network
+at runtime.
+
+Claude Code does not use this bundle — it stays on `claude mcp add --transport http`.
+
 ### MCP Inspector (for testing)
 
 ```bash
