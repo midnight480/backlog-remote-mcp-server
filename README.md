@@ -150,8 +150,9 @@ Troubleshooting sections live at the end of each deployment guide.
 
 ## Architecture
 
-The same MCP server runs on two platforms. Everything above the dashed line is
-shared code; below it is per-platform wiring.
+The same MCP server runs on two platforms. Each platform subgraph holds its own
+wiring — gateway, storage and upstream IdP — and both funnel into the shared
+`src/core`, which is where the tools and the Backlog client live.
 
 ```mermaid
 flowchart TB
