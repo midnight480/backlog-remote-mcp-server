@@ -15,16 +15,16 @@ Backlog を MCP (Model Context Protocol) 経由で操作するリモートサー
 
 ## デプロイ先を選ぶ
 
-| | Cloudflare | AWS | Google Cloud |
-|---|---|---|---|
-| 実行環境 | Workers (エッジ) | Lambda + API Gateway | Cloud Run |
-| MCP セッション | Durable Objects | ステートレス | ステートレス |
-| OAuth 認可サーバ | `@cloudflare/workers-oauth-provider` | `src/oauth` (MCP SDK の `mcpAuthRouter`) | `src/oauth` |
-| 上流 IdP | Cloudflare Access | Amazon Cognito | Google アカウント |
-| 状態保存 | Workers KV | DynamoDB (TTL) | Firestore (TTL) |
-| シークレット | Workers Secrets | Secrets Manager | Secret Manager |
-| IaC | wrangler | AWS SAM | Terraform |
-| 設定ファイル | `.dev.vars` | `infra/aws/params.yaml` | `infra/gcp/terraform.tfvars` |
+| | Cloudflare | AWS | Google Cloud | Azure |
+|---|---|---|---|---|
+| 実行環境 | Workers (エッジ) | Lambda + API Gateway | Cloud Run | Container Apps |
+| MCP セッション | Durable Objects | ステートレス | ステートレス | ステートレス |
+| OAuth 認可サーバ | `@cloudflare/workers-oauth-provider` | `src/oauth` | `src/oauth` | `src/oauth` |
+| 上流 IdP | Cloudflare Access | Amazon Cognito | Google アカウント | Microsoft Entra ID |
+| 状態保存 | Workers KV | DynamoDB (TTL) | Firestore (TTL) | Cosmos DB (TTL) |
+| シークレット | Workers Secrets | Secrets Manager | Secret Manager | Key Vault |
+| IaC | wrangler | AWS SAM | Terraform | Bicep |
+| 設定ファイル | `.dev.vars` | `infra/aws/params.yaml` | `infra/gcp/terraform.tfvars` | `infra/azure/params.json` |
 
 提供されるツールと挙動はどれも同じです。上流 IdP はどのプラットフォームでも
 Google と Microsoft Entra ID の両方を選べます。表にあるのは既定値です。
@@ -32,6 +32,7 @@ Google と Microsoft Entra ID の両方を選べます。表にあるのは既�
 - [Cloudflare へのデプロイ](docs/deploy-cloudflare_ja.md)
 - [AWS へのデプロイ](docs/deploy-aws_ja.md)
 - [Google Cloud へのデプロイ](docs/deploy-gcp_ja.md)
+- [Azure へのデプロイ](docs/deploy-azure_ja.md)
 
 ## 概算コスト
 
@@ -201,6 +202,17 @@ flowchart TB
         RUN --- GSM
     end
 
+    subgraph azure["Azure &nbsp;&nbsp; src/platforms/azure"]
+        direction TB
+        ACA["Container Apps &nbsp;&nbsp; <i>コンテナ</i>"]
+        ENT["Entra ID &nbsp;&nbsp; <i>OIDC</i>"]
+        COS["Cosmos DB &nbsp;&nbsp; <i>OAuth の状態</i>"]
+        AKV["Key Vault<br/><i>Backlog API キー</i>"]
+        ACA -. "OIDC" .-> ENT
+        ACA --- COS
+        ACA --- AKV
+    end
+
     subgraph oauth["src/oauth &nbsp;&nbsp; Node 系で共通"]
         OP["provider.ts &nbsp;&nbsp; <i>OAuth 認可サーバ</i>"]
         OS["store.ts &nbsp;&nbsp; <i>AuthStore インターフェース</i>"]
@@ -225,12 +237,15 @@ flowchart TB
     clients == "Streamable HTTP + OAuth" ==> CFW
     clients == "Streamable HTTP + OAuth" ==> APIGW
     clients == "Streamable HTTP + OAuth" ==> RUN
+    clients == "Streamable HTTP + OAuth" ==> ACA
     CFDO --> CS
     LAMBDA --> OP
     RUN --> OP
+    ACA --> OP
     OP --> CS
     DDB -. "AuthStore を実装" .-> OS
     FS -. "AuthStore を実装" .-> OS
+    COS -. "AuthStore を実装" .-> OS
     BC == "スペースごとの API キー" ==> BLA
     BC ==> BLB
     BC ==> BLC
@@ -285,9 +300,11 @@ src/
     cloudflare/            Workers 向けの配線 (Workers 専用の OAuth 実装を使う)
     aws/                   Lambda 向けの配線 + DynamoDB / Secrets Manager アダプタ
     gcp/                   Cloud Run 向けの配線 + Firestore / Secret Manager アダプタ
+    azure/                 Container Apps 向けの配線 + Cosmos DB / Key Vault アダプタ
 infra/
   aws/                     SAM テンプレートとパラメータ
   gcp/                     Terraform の設定
+  azure/                   Bicep テンプレートとパラメータ
 ```
 
 再利用できる範囲で 3 層に分かれています。
