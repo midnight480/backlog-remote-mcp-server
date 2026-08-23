@@ -1,5 +1,8 @@
-// platforms/aws/auth/provider.ts
-// MCP SDK の OAuthServerProvider 実装。状態は DynamoDB に持つ。
+// oauth/provider.ts
+// MCP SDK の OAuthServerProvider 実装。
+//
+// 永続化は AuthStore 越しに行うためプラットフォームに依存しない。
+// Node が動く実行環境 (AWS Lambda / Cloud Run / Container Apps など) で共有する。
 //
 // フローの全体像:
 //   1. MCP クライアント → /authorize    ... authorize() が上流 IdP へリダイレクト
@@ -23,7 +26,7 @@ import type {
 	OAuthTokenRevocationRequest,
 	OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { parseAllowedEmails, isAccessDenied } from "../../../core/create-server";
+import { parseAllowedEmails, isAccessDenied } from "../core/create-server";
 import {
 	approvalKey,
 	approvedClientsCookie,
@@ -33,7 +36,7 @@ import {
 	renderApprovalDialog,
 	validateCsrfToken,
 } from "./consent";
-import { DynamoAuthStore } from "./store";
+import type { AuthStore } from "./store";
 import { createPkcePair, type UpstreamClient } from "./upstream";
 
 const AUTH_CODE_TTL_SEC = 60 * 5;
@@ -53,7 +56,7 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export interface ProviderConfig {
-	store: DynamoAuthStore;
+	store: AuthStore;
 	upstream: UpstreamClient;
 	/** ALLOWED_EMAILS の生の値。空なら制限なし */
 	allowedEmails?: string;
@@ -63,8 +66,8 @@ export interface ProviderConfig {
 	serverName: string;
 }
 
-class DynamoClientsStore implements OAuthRegisteredClientsStore {
-	constructor(private readonly store: DynamoAuthStore) {}
+class RegisteredClientsStore implements OAuthRegisteredClientsStore {
+	constructor(private readonly store: AuthStore) {}
 
 	async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
 		return this.store.getClient(clientId);
@@ -83,11 +86,11 @@ class DynamoClientsStore implements OAuthRegisteredClientsStore {
 	}
 }
 
-export class DynamoOAuthProvider implements OAuthServerProvider {
+export class McpOAuthProvider implements OAuthServerProvider {
 	readonly clientsStore: OAuthRegisteredClientsStore;
 
 	constructor(private readonly config: ProviderConfig) {
-		this.clientsStore = new DynamoClientsStore(config.store);
+		this.clientsStore = new RegisteredClientsStore(config.store);
 	}
 
 	/**

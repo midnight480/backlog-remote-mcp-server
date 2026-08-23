@@ -185,7 +185,13 @@ flowchart TB
         LAMBDA --- SM
     end
 
-    subgraph shared["src/core &nbsp;&nbsp; 実行環境に依存しない部分"]
+    subgraph oauth["src/oauth &nbsp;&nbsp; Node 系で共通"]
+        OP["provider.ts &nbsp;&nbsp; <i>OAuth 認可サーバ</i>"]
+        OS["store.ts &nbsp;&nbsp; <i>AuthStore インターフェース</i>"]
+        OP --- OS
+    end
+
+    subgraph shared["src/core &nbsp;&nbsp; 全実行環境で共通"]
         direction TB
         CS["create-server.ts<br/><i>ツール登録 + 許可リスト判定</i>"]
         TOOLS["tools/ &nbsp;&nbsp; <i>MCP ツール 158 個</i>"]
@@ -203,7 +209,9 @@ flowchart TB
     clients == "Streamable HTTP + OAuth" ==> CFW
     clients == "Streamable HTTP + OAuth" ==> APIGW
     CFDO --> CS
-    LAMBDA --> CS
+    LAMBDA --> OP
+    OP --> CS
+    DDB -. "AuthStore を実装" .-> OS
     BC == "スペースごとの API キー" ==> BLA
     BC ==> BLB
     BC ==> BLC
@@ -244,20 +252,37 @@ GET 以外を拒否するため、個々のツール実装に穴があっても�
 
 ```
 src/
-  core/                    実行環境に依存しない部分
+  core/                    全実行環境で共通。MCP SDK と zod にしか依存しない
     backlog-client.ts      Backlog API クライアント (readOnly ガードもここ)
     tools/                 MCP ツール 158 個 (公開 API を網羅)
     create-server.ts       MCP サーバの組み立てと認可判定
+  oauth/                   Node 系の実行環境で共通。OAuth 認可サーバ (Express)
+    provider.ts            OAuthServerProvider の実装
+    store.ts               AuthStore インターフェース (永続化の差し替え点)
+    upstream.ts            上流 OIDC クライアント
+    consent.ts             同意画面
+    app.ts                 /authorize /token /mcp などを載せた Express アプリ
   platforms/
-    cloudflare/            Cloudflare Workers 向けの配線
-    aws/                   AWS Lambda 向けの配線
+    cloudflare/            Workers 向けの配線 (Workers 専用の OAuth 実装を使う)
+    aws/                   Lambda 向けの配線 + DynamoDB / Secrets Manager アダプタ
 infra/
   aws/                     SAM テンプレートとパラメータ
 ```
 
-`src/core` は `@modelcontextprotocol/sdk` と `zod` にしか依存せず、実行環境固有の
-API を一切参照しません。プラットフォームを追加する場合は `src/platforms/` 配下に
-アダプタを足すだけで、ツール実装をそのまま共有できます。
+再利用できる範囲で 3 層に分かれています。
+
+- **`src/core`** は `@modelcontextprotocol/sdk` と `zod` にしか依存せず、実行環境固有の
+  API を一切参照しません。どのプラットフォームからもそのまま使います。
+- **`src/oauth`** は OAuth 認可サーバです。Express ベースなので Node は要りますが、
+  クラウド固有のコードは持ちません。永続化は `AuthStore` インターフェース越しに、
+  上流 IdP は汎用の OIDC クライアント越しに扱います。Cloudflare はこれを使わず、
+  Workers 専用の OAuth 実装を使います。
+- **`src/platforms/<name>`** がクラウドの SDK を持つ唯一の場所です。
+
+そのため Node が動く別のプラットフォーム (Cloud Run、Container Apps など) を足す場合は、
+そのプラットフォームのデータベース向けに `AuthStore` を実装し、シークレット取得と、
+Express アプリを実行環境に渡すエントリポイントを書けば済みます。認可サーバ・ツール・
+Backlog クライアントはそのまま再利用されます。
 ## MCPクライアントからの接続
 
 ### Claude Desktop / Kiro / Cursor (mcp-remoteプロキシ経由)
@@ -438,8 +463,8 @@ npm test             # 下記のテストをまとめて実行
 
 | コマンド | 対象 |
 |---|---|
-| `npm run test:aws-oauth` | OAuth 認可サーバのロジック (DCR、PKCE、トークンの使い捨て、スコープ、失効) |
-| `npm run test:aws-consent` | 同意画面 (HTML エスケープ、署名 Cookie、CSRF、承認ゲート) |
+| `npm run test:oauth` | OAuth 認可サーバのロジック (DCR、PKCE、トークンの使い捨て、スコープ、失効) |
+| `npm run test:oauth-consent` | 同意画面 (HTML エスケープ、署名 Cookie、CSRF、承認ゲート) |
 | `npm run test:aws-store` | DynamoDB ストアのクライアント登録 TTL と延長 |
 
 いずれも外部サービスに接続せず、DynamoDB と上流 IdP はスタブに差し替えて動きます。

@@ -1,4 +1,4 @@
-// platforms/aws/web-bridge.ts
+// oauth/web-bridge.ts
 // Express の req/res と Web 標準の Request/Response を相互変換する。
 //
 // SDK の StreamableHTTPServerTransport (Node 版) は @hono/node-server 経由で

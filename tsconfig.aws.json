@@ -5,5 +5,5 @@
 	"compilerOptions": {
 		"types": ["node"]
 	},
-	"include": ["src/core/**/*.ts", "src/platforms/aws/**/*.ts"]
+	"include": ["src/core/**/*.ts", "src/oauth/**/*.ts", "src/platforms/aws/**/*.ts"]
 }

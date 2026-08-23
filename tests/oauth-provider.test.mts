@@ -1,10 +1,11 @@
-// AWS 版 OAuth 認可サーバ (DynamoOAuthProvider) のロジック検証。
-// DynamoDB と上流 IdP はスタブに差し替え、フローと拒否パスだけを対象にする。
-//   npm run test:aws-oauth
+// OAuth 認可サーバ (McpOAuthProvider) のロジック検証。
+// AuthStore と上流 IdP はスタブに差し替え、フローと拒否パスだけを対象にする。
+// プラットフォームに依存しないので、AWS 以外を足しても同じテストが使える。
+//   npm run test:oauth
 import { createHash, randomBytes } from "node:crypto";
-const { DynamoOAuthProvider } = await import("../src/platforms/aws/auth/provider.ts");
+const { McpOAuthProvider } = await import("../src/oauth/provider.ts");
 
-// DynamoAuthStore と同じ形のインメモリ実装 (DynamoDB を使わずロジックだけ検証)
+// AuthStore のインメモリ実装 (永続化層を使わずロジックだけ検証)
 class MemStore {
   m = new Map<string, any>();
   private now() { return Math.floor(Date.now()/1000); }
@@ -41,13 +42,13 @@ const throws = async (n: string, fn: () => Promise<any>, want: RegExp) => {
   catch (e: any) { ok(n, want.test(e.message), want.test(e.message) ? "" : `  msg=${e.message}`); } };
 
 const COOKIE_SECRET = "test-cookie-secret";
-const prov = new DynamoOAuthProvider({ store: store as any, upstream,
+const prov = new McpOAuthProvider({ store: store as any, upstream,
   allowedEmails: '["ok@example.com"]', cookieSecret: COOKIE_SECRET, serverName: "Test" });
 
 // authorize() は同意画面を挟むようになったため、承認済み Cookie を持つ
 // リクエストを模して上流リダイレクトまで進める。同意フロー自体の検証は
 // tests/aws-consent.test.mts が行う。
-const { approvalKey, approvedClientsCookie } = await import("../src/platforms/aws/auth/consent.ts");
+const { approvalKey, approvedClientsCookie } = await import("../src/oauth/consent.ts");
 const approvedRes = (clientId: string, redirectUri: string) => {
   const cookie = approvedClientsCookie({ headers: {} } as any, approvalKey(clientId, redirectUri), COOKIE_SECRET).split(";")[0];
   let captured = "";
@@ -135,7 +136,7 @@ await prov.revokeToken(client, { token: refreshed.access_token } as any);
 ok("自分のトークンは失効できる", !(await store.getToken(refreshed.access_token)));
 
 // --- 許可リスト外のユーザー ---
-const prov2 = new DynamoOAuthProvider({ store: store as any, upstream,
+const prov2 = new McpOAuthProvider({ store: store as any, upstream,
   allowedEmails: '["someone-else@example.com"]', cookieSecret: COOKIE_SECRET, serverName: "Test" });
 const st4 = await mkState(prov2);
 const denied = new URL(await prov2.handleUpstreamCallback("c", st4));

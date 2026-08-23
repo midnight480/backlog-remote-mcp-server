@@ -1,5 +1,5 @@
-// platforms/aws/auth/upstream.ts
-// 上流 OIDC プロバイダ (Cognito) との連携。
+// oauth/upstream.ts
+// 上流 OIDC プロバイダとの連携 (AWS では Cognito、Azure なら Entra ID など)。
 // Cloudflare 版の access-handler.ts が Cloudflare Access に対して行っていることの AWS 版。
 //
 // Cognito は動的クライアント登録 (RFC 7591) に対応しないため、認可サーバとしては
