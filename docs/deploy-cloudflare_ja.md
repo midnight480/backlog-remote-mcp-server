@@ -201,7 +201,7 @@ npx wrangler secret put ACCESS_CLIENT_SECRET
 ```
 
 > **Note**
-> `npm run cloudflare:deploy` は `.dev.vars` の値で本番のシークレットを**上書き**します。ローカルと本番で値を分けたくなった場合は、通常のデプロイに `deploy:no-secrets` を使い、シークレット更新は `secrets:push` で明示的に行う運用に切り替えてください。
+> `npm run cloudflare:deploy` は `.dev.vars` の値で本番のシークレットを**上書き**します。ローカルと本番で値を分けたくなった場合は、通常のデプロイに `cloudflare:deploy:no-secrets` を使い、シークレット更新は `cloudflare:secrets:push` で明示的に行う運用に切り替えてください。
 
 ## Step 5.6: 動作確認
 

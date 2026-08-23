@@ -201,7 +201,7 @@ npx wrangler secret put ACCESS_CLIENT_SECRET
 ```
 
 > **Note**
-> `npm run cloudflare:deploy` **overwrites** production secrets with the values in `.dev.vars`. If you need different values locally and in production, switch to `deploy:no-secrets` for routine deploys and push secrets explicitly with `secrets:push`.
+> `npm run cloudflare:deploy` **overwrites** production secrets with the values in `.dev.vars`. If you need different values locally and in production, switch to `cloudflare:deploy:no-secrets` for routine deploys and push secrets explicitly with `cloudflare:secrets:push`.
 
 ## Step 5.6: Verify the Deployment
 
