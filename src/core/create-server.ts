@@ -7,6 +7,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type BacklogSpacesConfig, parseSpacesConfig } from "./backlog-client";
+import { registerDocumentTools } from "./tools/document-tools";
 import { registerGitTools } from "./tools/git-tools";
 import { registerIssueTools } from "./tools/issue-tools";
 import { registerNotificationTools } from "./tools/notification-tools";
@@ -80,6 +81,7 @@ export function registerTools(server: McpServer, options: CreateServerOptions): 
 	registerProjectTools(server, config);
 	registerIssueTools(server, config);
 	registerWikiTools(server, config);
+	registerDocumentTools(server, config);
 	registerGitTools(server, config);
 	registerNotificationTools(server, config);
 }

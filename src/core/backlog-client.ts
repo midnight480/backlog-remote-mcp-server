@@ -76,10 +76,17 @@ export function resolveSpace(config: BacklogSpacesConfig, spaceName?: string): B
 	return space;
 }
 
+/**
+ * クエリ値。配列を渡すと `key[]=v1&key[]=v2` 形式で展開する。
+ * Backlog の一部エンドポイント (例: GET /documents の projectId[]) が
+ * 繰り返しパラメータを要求するため。
+ */
+export type BacklogQueryValue = string | number | boolean | Array<string | number> | undefined;
+
 export interface BacklogApiOptions {
 	method?: string;
 	path: string;
-	query?: Record<string, string | number | boolean | undefined>;
+	query?: Record<string, BacklogQueryValue>;
 	body?: Record<string, unknown>;
 }
 
@@ -96,7 +103,12 @@ export async function callBacklogApi(
 
 	if (query) {
 		for (const [key, value] of Object.entries(query)) {
-			if (value !== undefined && value !== null) {
+			if (value === undefined || value === null) continue;
+			if (Array.isArray(value)) {
+				for (const item of value) {
+					url.searchParams.append(`${key}[]`, String(item));
+				}
+			} else {
 				url.searchParams.set(key, String(value));
 			}
 		}
