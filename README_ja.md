@@ -167,7 +167,7 @@ Backlog スペース A / B / C ...
 src/
   core/                    実行環境に依存しない部分
     backlog-client.ts      Backlog API クライアント (readOnly ガードもここ)
-    tools/                 MCP ツール 40 個
+    tools/                 MCP ツール 158 個 (公開 API を網羅)
     create-server.ts       MCP サーバの組み立てと認可判定
   platforms/
     cloudflare/            Cloudflare Workers 向けの配線
