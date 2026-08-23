@@ -4,5 +4,6 @@ dist/
 .wrangler/
 wrangler.deploy.json
 .aws-sam/
+.mcpb-build/
 samconfig.toml
 infra/aws/params.yaml
