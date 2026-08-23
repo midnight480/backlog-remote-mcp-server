@@ -8,11 +8,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type BacklogSpacesConfig, parseSpacesConfig } from "./backlog-client";
 import { registerDocumentTools } from "./tools/document-tools";
+import { registerFileTools } from "./tools/file-tools";
 import { registerGitTools } from "./tools/git-tools";
 import { registerIssueTools } from "./tools/issue-tools";
 import { registerNotificationTools } from "./tools/notification-tools";
 import { registerProjectTools } from "./tools/project-tools";
 import { registerSpaceTools } from "./tools/space-tools";
+import { registerWatchingTools } from "./tools/watching-tools";
+import { registerWebhookTools } from "./tools/webhook-tools";
 import { registerWikiTools } from "./tools/wiki-tools";
 
 export const SERVER_NAME = "Backlog Remote MCP Server";
@@ -84,4 +87,7 @@ export function registerTools(server: McpServer, options: CreateServerOptions): 
 	registerDocumentTools(server, config);
 	registerGitTools(server, config);
 	registerNotificationTools(server, config);
+	registerFileTools(server, config);
+	registerWebhookTools(server, config);
+	registerWatchingTools(server, config);
 }

@@ -190,3 +190,139 @@ export async function callBacklogApiForm(
 
 	return response.json();
 }
+
+/** バイナリ応答の上限。Lambda / API Gateway の応答サイズ制限に収まるよう保守的に設定する。 */
+export const MAX_BINARY_BYTES = 4 * 1024 * 1024;
+
+export interface BacklogBinary {
+	/** base64 エンコードした本体 */
+	base64: string;
+	mimeType: string;
+	/** 元のバイト数 (base64 化前) */
+	size: number;
+	filename?: string;
+}
+
+/** Uint8Array を base64 に変換する。Workers / Lambda 双方で動くよう btoa を使い、
+ *  引数展開でスタックを溢れさせないためチャンク処理する。 */
+function toBase64(bytes: Uint8Array): string {
+	const CHUNK = 0x8000;
+	let binary = "";
+	for (let i = 0; i < bytes.length; i += CHUNK) {
+		binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+	}
+	return btoa(binary);
+}
+
+/** Content-Disposition からファイル名を取り出す。RFC 5987 の filename* を優先する。 */
+function parseFilename(header: string | null): string | undefined {
+	if (!header) return undefined;
+	const star = header.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+	if (star) {
+		try {
+			return decodeURIComponent(star[1].replace(/^"|"$/g, ""));
+		} catch {
+			// フォールバックして plain filename を見る
+		}
+	}
+	const plain = header.match(/filename="?([^";]+)"?/i);
+	return plain ? plain[1] : undefined;
+}
+
+/**
+ * バイナリを返すエンドポイント (アイコン、共有ファイル、添付ダウンロード) 用。
+ * MAX_BINARY_BYTES を超えるものはエラーにする。
+ */
+export async function callBacklogApiBinary(
+	space: BacklogSpace,
+	options: BacklogApiOptions,
+): Promise<BacklogBinary> {
+	const { method = "GET", path, query } = options;
+	assertWritable(space, method, path);
+
+	const url = new URL(`https://${space.domain}/api/v2${path}`);
+	url.searchParams.set("apiKey", space.apiKey);
+	if (query) {
+		for (const [key, value] of Object.entries(query)) {
+			if (value === undefined || value === null) continue;
+			if (Array.isArray(value)) {
+				for (const item of value) url.searchParams.append(`${key}[]`, String(item));
+			} else {
+				url.searchParams.set(key, String(value));
+			}
+		}
+	}
+
+	const response = await fetch(url.toString(), { method });
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(`Backlog API error (${response.status}): ${errorText}`);
+	}
+
+	const buffer = await response.arrayBuffer();
+	if (buffer.byteLength > MAX_BINARY_BYTES) {
+		throw new Error(
+			`File is ${buffer.byteLength} bytes, which exceeds the ${MAX_BINARY_BYTES} byte limit ` +
+				`for inline responses. Download it directly from Backlog instead.`,
+		);
+	}
+
+	return {
+		base64: toBase64(new Uint8Array(buffer)),
+		mimeType: response.headers.get("content-type") || "application/octet-stream",
+		size: buffer.byteLength,
+		filename: parseFilename(response.headers.get("content-disposition")),
+	};
+}
+
+/**
+ * multipart/form-data でファイルを送る (POST /space/attachment, Wiki 添付)。
+ * MCP クライアントからはテキストしか渡せないため、本体は base64 で受け取る。
+ */
+export async function callBacklogApiUpload(
+	space: BacklogSpace,
+	options: {
+		path: string;
+		filename: string;
+		contentBase64: string;
+		contentType?: string;
+		/** フォームのフィールド名。既定は Backlog が期待する "file" */
+		fieldName?: string;
+	},
+): Promise<any> {
+	const { path, filename, contentBase64, contentType, fieldName = "file" } = options;
+	assertWritable(space, "POST", path);
+
+	let bytes: Uint8Array;
+	try {
+		const binary = atob(contentBase64);
+		bytes = new Uint8Array(binary.length);
+		for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	} catch {
+		throw new Error("contentBase64 is not valid base64.");
+	}
+	if (bytes.length > MAX_BINARY_BYTES) {
+		throw new Error(
+			`File is ${bytes.length} bytes, which exceeds the ${MAX_BINARY_BYTES} byte upload limit.`,
+		);
+	}
+
+	const url = new URL(`https://${space.domain}/api/v2${path}`);
+	url.searchParams.set("apiKey", space.apiKey);
+
+	const form = new FormData();
+	form.append(
+		fieldName,
+		new Blob([bytes.buffer as ArrayBuffer], { type: contentType || "application/octet-stream" }),
+		filename,
+	);
+
+	// Content-Type は FormData から自動で boundary 付きで設定させる
+	const response = await fetch(url.toString(), { method: "POST", body: form });
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(`Backlog API error (${response.status}): ${errorText}`);
+	}
+	if (response.status === 204) return null;
+	return response.json();
+}
