@@ -5,7 +5,7 @@
 // 匿名のレコードが永久に溜まる。使われている登録は延長されることを確認する。
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoAuthStore } from "../src/platforms/aws/auth/store.ts";
+import { DynamoAuthStore } from "../src/platforms/aws/store.ts";
 
 const DAY = 60 * 60 * 24;
 let pass = 0, fail = 0;

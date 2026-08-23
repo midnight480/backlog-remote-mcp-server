@@ -1,23 +1,26 @@
-// platforms/aws/app.ts
-// AWS Lambda 向けの HTTP アプリ本体 (Express)。
+// oauth/app.ts
+// OAuth 認可サーバと /mcp を載せた Express アプリ。
 //
-// MCP SDK の OAuth 認可サーバ実装 (mcpAuthRouter) が Express 前提のため、
-// AWS 側は Express で組む。認可サーバを自前実装すると PKCE・トークン交換・
+// MCP SDK の OAuth 認可サーバ実装 (mcpAuthRouter) が Express 前提のため
+// Express で組む。認可サーバを自前実装すると PKCE・トークン交換・
 // 動的クライアント登録まで自作することになり、correctness リスクが高い。
 //
-// Durable Object 相当の仕組みが無いため MCP はステートレスで動かす。
+// Durable Object 相当の仕組みを前提にできないため MCP はステートレスで動かす。
 // 現状の全ツールはリクエスト/レスポンス型でサーバ発の push を使っていない。
+//
+// Node が動く実行環境で共有する。実行環境固有の配線 (Lambda なら
+// serverless-http、Cloud Run なら listen) は src/platforms/ 側の責務。
 
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import express, { type Request, type Response } from "express";
-import { createMcpServer, SERVER_NAME, SERVER_VERSION } from "../../core/create-server";
-import type { DynamoOAuthProvider } from "./auth/provider";
+import { createMcpServer, SERVER_NAME, SERVER_VERSION } from "../core/create-server";
+import type { McpOAuthProvider } from "./provider";
 import { toWebRequest, writeWebResponse } from "./web-bridge";
 
 export interface AppConfig {
-	provider: DynamoOAuthProvider;
+	provider: McpOAuthProvider;
 	/** このサーバの公開 URL (issuer)。例: https://xxx.lambda-url.ap-northeast-1.on.aws */
 	issuerUrl: URL;
 	/** BACKLOG_SPACES_CONFIG の生の値 */
@@ -51,7 +54,7 @@ export function createApp(config: AppConfig) {
 		}),
 	);
 
-	// 上流 IdP (Cognito) からのコールバック
+	// 上流 IdP からのコールバック
 	app.get("/callback", async (req: Request, res: Response) => {
 		const { code, state, error, error_description } = req.query;
 		if (typeof error === "string") {

@@ -1,5 +1,6 @@
-// platforms/aws/auth/consent.ts
-// 認可の同意画面。Cloudflare 版の workers-oauth-utils.ts が担っている役割の AWS 版。
+// oauth/consent.ts
+// 認可の同意画面。Cloudflare 版の workers-oauth-utils.ts が担っている役割を、
+// Node 系の実行環境向けに実装したもの。
 //
 // なぜ必要か:
 //   /register (RFC 7591 動的クライアント登録) は認証なしで誰でも叩けるため、

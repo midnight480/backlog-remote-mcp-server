@@ -1,12 +1,12 @@
 // AWS 版の同意画面 (consent.ts) と authorize() の同意ゲートを検証する。
 // セキュリティレビュー指摘への対応が実際に攻撃を止めるかを確認する。
-//   npm run test:aws-consent
+//   npm run test:oauth-consent
 
 import {
   approvalKey, approvedClientsCookie, isClientApproved,
   issueCsrfToken, validateCsrfToken, escapeHtml, sanitizeUrl,
-} from "../src/platforms/aws/auth/consent.ts";
-import { DynamoOAuthProvider } from "../src/platforms/aws/auth/provider.ts";
+} from "../src/oauth/consent.ts";
+import { McpOAuthProvider } from "../src/oauth/provider.ts";
 
 const SECRET = "test-cookie-secret-0123456789abcdef";
 let pass = 0, fail = 0;
@@ -49,7 +49,7 @@ ok("フォーム値無しは拒否", !validateCsrfToken(reqWith(csrfCookie, "POS
 console.log("authorize() の同意ゲート:");
 const store: any = { putUpstreamState: async () => {}, getClient: async () => undefined };
 const upstream: any = { buildAuthorizeUrl: () => "https://idp.example/oauth2/authorize?x=1" };
-const prov = new DynamoOAuthProvider({
+const prov = new McpOAuthProvider({
   store, upstream, allowedEmails: "[]", cookieSecret: SECRET, serverName: "Test Server",
 });
 const client: any = { client_id: "client-A", client_name: "Evil <script>Client</script>", redirect_uris: ["https://evil.example/cb"] };

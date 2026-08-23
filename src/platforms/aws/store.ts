@@ -1,5 +1,5 @@
-// platforms/aws/auth/store.ts
-// OAuth の状態を DynamoDB に保存する。
+// platforms/aws/store.ts
+// AuthStore (src/oauth/store.ts) の DynamoDB 実装。
 //
 // Cloudflare 版の KV に相当する層。単一テーブルに pk で種別を分けて格納し、
 // expiresAt (epoch 秒) を TTL 属性にして認可コード・トークンを自動失効させる。
@@ -14,43 +14,12 @@ import {
 	QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
-
-export interface AuthCodeRecord {
-	code: string;
-	clientId: string;
-	redirectUri: string;
-	codeChallenge: string;
-	scopes: string[];
-	userEmail: string;
-	userId: string;
-	resource?: string;
-	expiresAt: number;
-}
-
-export interface TokenRecord {
-	token: string;
-	kind: "access" | "refresh";
-	clientId: string;
-	scopes: string[];
-	userEmail: string;
-	userId: string;
-	resource?: string;
-	expiresAt: number;
-}
-
-/** 上流 IdP へリダイレクトする間、MCP 側の認可要求を預けておくレコード */
-export interface UpstreamStateRecord {
-	state: string;
-	clientId: string;
-	redirectUri: string;
-	codeChallenge: string;
-	scopes: string[];
-	mcpState?: string;
-	resource?: string;
-	/** 上流に対して使う PKCE の verifier */
-	upstreamCodeVerifier: string;
-	expiresAt: number;
-}
+import type {
+	AuthCodeRecord,
+	AuthStore,
+	TokenRecord,
+	UpstreamStateRecord,
+} from "../../oauth/store";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -65,7 +34,7 @@ const CLIENT_TTL_SEC = 60 * 60 * 24 * 90;
 /** 書き込みを減らすため、残りがこの割合を切ったときだけ延長する */
 const CLIENT_RENEW_THRESHOLD_SEC = CLIENT_TTL_SEC / 2;
 
-export class DynamoAuthStore {
+export class DynamoAuthStore implements AuthStore {
 	private readonly doc: DynamoDBDocumentClient;
 
 	constructor(

@@ -7,10 +7,10 @@
 
 import serverlessExpress from "serverless-http";
 import { SERVER_NAME } from "../../core/create-server";
-import { createApp } from "./app";
-import { DynamoOAuthProvider } from "./auth/provider";
-import { DynamoAuthStore } from "./auth/store";
-import { createUpstreamClient } from "./auth/upstream";
+import { createApp } from "../../oauth/app";
+import { McpOAuthProvider } from "../../oauth/provider";
+import { DynamoAuthStore } from "./store";
+import { createUpstreamClient } from "../../oauth/upstream";
 import { getSecret } from "./secrets";
 
 function required(name: string): string {
@@ -30,7 +30,7 @@ async function build(): Promise<ServerlessHandler> {
 		getSecret(required("COOKIE_SECRET_ARN")),
 	]);
 
-	const provider = new DynamoOAuthProvider({
+	const provider = new McpOAuthProvider({
 		store: new DynamoAuthStore(required("AUTH_TABLE_NAME")),
 		allowedEmails: process.env.ALLOWED_EMAILS,
 		cookieSecret,

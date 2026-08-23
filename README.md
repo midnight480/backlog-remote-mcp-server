@@ -186,7 +186,13 @@ flowchart TB
         LAMBDA --- SM
     end
 
-    subgraph shared["src/core &nbsp;&nbsp; runtime independent"]
+    subgraph oauth["src/oauth &nbsp;&nbsp; shared by Node runtimes"]
+        OP["provider.ts &nbsp;&nbsp; <i>OAuth authorization server</i>"]
+        OS["store.ts &nbsp;&nbsp; <i>AuthStore interface</i>"]
+        OP --- OS
+    end
+
+    subgraph shared["src/core &nbsp;&nbsp; every runtime"]
         direction TB
         CS["create-server.ts<br/><i>tool registration + email allowlist</i>"]
         TOOLS["tools/ &nbsp;&nbsp; <i>158 MCP tools</i>"]
@@ -204,7 +210,9 @@ flowchart TB
     clients == "Streamable HTTP + OAuth" ==> CFW
     clients == "Streamable HTTP + OAuth" ==> APIGW
     CFDO --> CS
-    LAMBDA --> CS
+    LAMBDA --> OP
+    OP --> CS
+    DDB -. "implements AuthStore" .-> OS
     BC == "per-space API key" ==> BLA
     BC ==> BLB
     BC ==> BLC
@@ -246,20 +254,37 @@ Business logic is separated from runtime wiring.
 
 ```
 src/
-  core/                    Runtime-independent
+  core/                    Every runtime. Depends only on the MCP SDK and zod
     backlog-client.ts      Backlog API client (including the readOnly guard)
     tools/                 158 MCP tools (full public API coverage)
     create-server.ts       MCP server assembly and authorization
+  oauth/                   Node runtimes. OAuth authorization server (Express)
+    provider.ts            OAuthServerProvider implementation
+    store.ts               AuthStore interface — the persistence port
+    upstream.ts            Upstream OIDC client
+    consent.ts             Consent screen
+    app.ts                 Express app exposing /authorize, /token, /mcp, ...
   platforms/
-    cloudflare/            Cloudflare Workers wiring
-    aws/                   AWS Lambda wiring
+    cloudflare/            Workers wiring (uses its own Workers OAuth provider)
+    aws/                   Lambda wiring + DynamoDB / Secrets Manager adapters
 infra/
   aws/                     SAM template and parameters
 ```
 
-`src/core` depends only on `@modelcontextprotocol/sdk` and `zod` and references no
-runtime-specific API. Adding a platform means adding an adapter under
-`src/platforms/` while sharing the same tool implementations.
+Three layers, by how widely each one can be reused:
+
+- **`src/core`** depends only on `@modelcontextprotocol/sdk` and `zod` and references
+  no runtime-specific API. Every platform uses it as-is.
+- **`src/oauth`** is the OAuth authorization server. It is Express-based, so it needs
+  Node, but it holds no cloud-specific code: persistence goes through the `AuthStore`
+  interface and the upstream IdP through a generic OIDC client. Cloudflare does not
+  use it — Workers has its own OAuth provider.
+- **`src/platforms/<name>`** is the only place a cloud SDK appears.
+
+Adding another Node-hosted platform (Cloud Run, Container Apps, ...) therefore means
+implementing `AuthStore` for that platform's database, a secret lookup, and an entry
+point that hands the Express app to the runtime. The authorization server, the tools
+and the Backlog client are all reused unchanged.
 ## Connecting from MCP Clients
 
 ### Claude Desktop / Kiro / Cursor (via mcp-remote proxy)
@@ -440,8 +465,8 @@ npm test             # runs all suites below
 
 | Command | Covers |
 |---|---|
-| `npm run test:aws-oauth` | OAuth authorization server logic (DCR, PKCE, single-use tokens, scopes, revocation) |
-| `npm run test:aws-consent` | Consent screen (HTML escaping, signed cookies, CSRF, approval gate) |
+| `npm run test:oauth` | OAuth authorization server logic (DCR, PKCE, single-use tokens, scopes, revocation) |
+| `npm run test:oauth-consent` | Consent screen (HTML escaping, signed cookies, CSRF, approval gate) |
 | `npm run test:aws-store` | DynamoDB store client-registration TTL and renewal |
 
 None of them reach external services — DynamoDB and the upstream IdP are stubbed.
