@@ -72,9 +72,13 @@ cp infra/azure/params.example.json infra/azure/params.json
 ```bash
 export AZURE_RESOURCE_GROUP=rg-backlog-mcp
 
+npm run azure:validate  # Bicep をコンパイルして構文と型を検証する
 npm run azure:what-if   # 何も作らず差分だけ確認する
 npm run azure:deploy    # ACR でイメージをビルドして push し、Bicep をデプロイ
 ```
+
+`azure:validate` は Azure の認証情報が無くても動きます。`azure:what-if` は
+サブスクリプションへの接続が要ります。
 
 `azure:deploy` は `az acr build` でイメージを作るため、**ローカルに Docker が
 なくても動きます**。

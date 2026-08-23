@@ -68,9 +68,14 @@ cp infra/gcp/terraform.tfvars.example infra/gcp/terraform.tfvars
 ## 4. デプロイ
 
 ```bash
+npm run gcp:validate # プロバイダのスキーマに対して構文と型を検証する
 npm run gcp:plan     # 何も作らず差分だけ確認する
 npm run gcp:deploy   # イメージを push して terraform apply
 ```
+
+`gcp:validate` は Google Cloud の認証情報が無くても動きます。`gcp:plan` も
+state がまだ無い状態なら認証情報なしで通ります (21 リソースの新規作成として
+表示されます)。
 
 `gcp:deploy` は Cloud Build でイメージを作って Artifact Registry へ push し、
 その後 `terraform apply` を実行します。
