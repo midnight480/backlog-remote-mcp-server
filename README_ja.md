@@ -455,7 +455,8 @@ Inspector画面で `https://<MCP_HOSTNAME>/mcp` を入力し、OAuth Settingsか
 ## セキュリティ
 
 - **認証**: Cloudflare Access → Google / Microsoft Entra ID。OAuthフロー全体がCloudflare側で管理
-- **認可**: `ALLOWED_EMAILS` で許可メールアドレスをホワイトリスト管理
+- **認可**: `ALLOWED_EMAILS` で許可メールアドレスをホワイトリスト管理。
+  **空にすると許可リストが無効になり**、上流 IdP を通れた人全員が全ツールを使えます
 - **二重チェック**: Access Policy (Cloudflare側) + アプリケーション内allowlist (Worker側)
 - **APIキー保護**: Backlog APIキーはCloudflare Secretsに格納。クライアントには一切露出しない
 - **PKCE + CSRF**: OAuth flowはPKCE (S256) とCSRFトークンで保護

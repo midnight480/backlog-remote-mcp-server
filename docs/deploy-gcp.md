@@ -62,6 +62,10 @@ cp infra/gcp/terraform.tfvars.example infra/gcp/terraform.tfvars
 | `upstream_client_id` / `upstream_client_secret` | The OAuth client from step 2 |
 | `backlog_spaces_config` | Backlog space configuration (JSON string) |
 
+> **⚠ Do not leave the allowlist empty.**
+> An empty array means no allowlist, so anyone who can sign in through the upstream IdP
+> gets every tool. This is the effective authorization boundary of the server.
+
 This file holds secrets and is already in `.gitignore`.
 
 ## 4. Deploy
