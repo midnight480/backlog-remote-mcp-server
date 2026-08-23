@@ -15,18 +15,23 @@ English | [日本語](README_ja.md)
 
 ## Choosing a deployment
 
-| | Cloudflare Workers | AWS |
-|---|---|---|
-| Runtime | Workers (edge) | Lambda + API Gateway HTTP API |
-| MCP session | Durable Objects | Stateless |
-| OAuth authorization server | `@cloudflare/workers-oauth-provider` | MCP SDK `mcpAuthRouter` |
-| Upstream IdP | Cloudflare Access | Amazon Cognito |
-| State storage | Workers KV | DynamoDB (TTL) |
-| Secrets | Workers Secrets | Secrets Manager |
-| IaC | wrangler | AWS SAM |
-| Config file | `.dev.vars` | `infra/aws/params.yaml` |
+| | Cloudflare | AWS | Google Cloud |
+|---|---|---|---|
+| Runtime | Workers (edge) | Lambda + API Gateway | Cloud Run |
+| MCP session | Durable Objects | Stateless | Stateless |
+| OAuth authorization server | `@cloudflare/workers-oauth-provider` | `src/oauth` (MCP SDK `mcpAuthRouter`) | `src/oauth` |
+| Upstream IdP | Cloudflare Access | Amazon Cognito | Google account |
+| State storage | Workers KV | DynamoDB (TTL) | Firestore (TTL) |
+| Secrets | Workers Secrets | Secrets Manager | Secret Manager |
+| IaC | wrangler | AWS SAM | Terraform |
+| Config file | `.dev.vars` | `infra/aws/params.yaml` | `infra/gcp/terraform.tfvars` |
 
-The tools and their behavior are identical on both.
+The tools and their behavior are identical on all of them. Every platform can use
+either Google or Microsoft Entra ID as its upstream IdP; the table shows the default.
+
+- [Deploying to Cloudflare](docs/deploy-cloudflare.md)
+- [Deploying to AWS](docs/deploy-aws.md)
+- [Deploying to Google Cloud](docs/deploy-gcp.md)
 
 ## Estimated Cost
 
@@ -186,6 +191,17 @@ flowchart TB
         LAMBDA --- SM
     end
 
+    subgraph gcp["Google Cloud &nbsp;&nbsp; src/platforms/gcp"]
+        direction TB
+        RUN["Cloud Run &nbsp;&nbsp; <i>container</i>"]
+        GID["Google account &nbsp;&nbsp; <i>OIDC</i>"]
+        FS["Firestore &nbsp;&nbsp; <i>OAuth state</i>"]
+        GSM["Secret Manager<br/><i>Backlog API keys</i>"]
+        RUN -. "OIDC" .-> GID
+        RUN --- FS
+        RUN --- GSM
+    end
+
     subgraph oauth["src/oauth &nbsp;&nbsp; shared by Node runtimes"]
         OP["provider.ts &nbsp;&nbsp; <i>OAuth authorization server</i>"]
         OS["store.ts &nbsp;&nbsp; <i>AuthStore interface</i>"]
@@ -209,10 +225,13 @@ flowchart TB
 
     clients == "Streamable HTTP + OAuth" ==> CFW
     clients == "Streamable HTTP + OAuth" ==> APIGW
+    clients == "Streamable HTTP + OAuth" ==> RUN
     CFDO --> CS
     LAMBDA --> OP
+    RUN --> OP
     OP --> CS
     DDB -. "implements AuthStore" .-> OS
+    FS -. "implements AuthStore" .-> OS
     BC == "per-space API key" ==> BLA
     BC ==> BLB
     BC ==> BLC
@@ -267,8 +286,10 @@ src/
   platforms/
     cloudflare/            Workers wiring (uses its own Workers OAuth provider)
     aws/                   Lambda wiring + DynamoDB / Secrets Manager adapters
+    gcp/                   Cloud Run wiring + Firestore / Secret Manager adapters
 infra/
   aws/                     SAM template and parameters
+  gcp/                     Terraform configuration
 ```
 
 Three layers, by how widely each one can be reused:
