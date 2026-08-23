@@ -43,6 +43,8 @@ either Google or Microsoft Entra ID as its upstream IdP; the table shows the def
 > - [Cloudflare Zero Trust pricing](https://www.cloudflare.com/plans/zero-trust-services/)
 > - [Cloudflare Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
 > - [AWS Pricing Calculator](https://calculator.aws/#/addService)
+> - [Google Cloud Pricing Calculator](https://cloud.google.com/products/calculator)
+> - [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/)
 
 ### Assumptions
 
@@ -54,32 +56,43 @@ Personal use or a small team.
 | MCP requests | ~3,000 / month |
 | Backlog spaces | 3 |
 | Log retention | 30 days |
+| Region | Tokyo (`ap-northeast-1` / `asia-northeast1` / `japaneast`) |
 
 ### Fixed costs (charged even when idle)
 
-| | Cloudflare | AWS |
-|---|---|---|
-| Runtime | $0 (Free plan works) | $0 |
-| Auth platform | $0 (Zero Trust free up to 50 users) | $0 (within Cognito free tier) |
-| Secrets | $0 (Workers Secrets are free) | **~$0.80** (2 Secrets Manager secrets) |
-| Certificates | $0 | $0 (public ACM certificates are free) |
-| **Total** | **$0** | **~$1/month** |
+| | Cloudflare | AWS | Google Cloud | Azure |
+|---|---|---|---|---|
+| Runtime | $0 (Free plan works) | $0 | $0 (`min_instances = 0`) | $0 (`minReplicas = 0`) |
+| Auth platform | $0 (Zero Trust free up to 50 users) | $0 (within Cognito free tier) | $0 (Google sign-in) | $0 (Entra ID free tier) |
+| Secrets | $0 (Workers Secrets are free) | **~$0.80** (2 Secrets Manager secrets) | $0 (3 versions, within free tier) | $0 (Key Vault bills operations, not secrets) |
+| Container registry | n/a | n/a | $0 (Artifact Registry, 0.5 GB free) | **~$5** (ACR Basic, $0.1666/day) |
+| Certificates | $0 | $0 (public ACM certificates are free) | $0 (managed by Cloud Run) | $0 (managed by Container Apps) |
+| **Total** | **$0** | **~$1/month** | **~$0** | **~$5/month** |
 
-**On AWS the fixed cost is essentially just Secrets Manager**, which bills per secret per
-month whether or not it is used. Cloudflare has no fixed cost because Workers Secrets are
-free.
+Each platform's fixed cost comes from exactly one place:
+
+- **AWS** — Secrets Manager bills per secret per month whether or not it is used.
+- **Azure** — the container registry. ACR has no free tier, and Basic is billed per day
+  even for a single image. Pointing `image` at a free registry such as GHCR removes this,
+  at the cost of managing registry credentials yourself.
+- **Cloudflare / Google Cloud** — nothing. Workers Secrets are free, and Google's Secret
+  Manager free tier covers the three versions this project stores.
+
+Note that **Key Vault does not charge per secret**, unlike AWS Secrets Manager. It bills
+per 10,000 operations, and this server caches secrets after the first read.
 
 ### What is metered
 
-| | Cloudflare | AWS |
-|---|---|---|
-| Requests | Workers | Lambda + API Gateway |
-| State storage | Durable Objects + KV | DynamoDB |
-| Logs | Workers Logs | CloudWatch Logs |
+| | Cloudflare | AWS | Google Cloud | Azure |
+|---|---|---|---|---|
+| Requests | Workers | Lambda + API Gateway | Cloud Run | Container Apps |
+| State storage | Durable Objects + KV | DynamoDB | Firestore | Cosmos DB (serverless) |
+| Logs | Workers Logs | CloudWatch Logs | Cloud Logging | Log Analytics |
 
-At the assumed volume (~3,000 requests/month) **both stay within the free allowances**.
-API Gateway HTTP API has no perpetual free tier, so AWS accrues a small charge
-proportional to request count (roughly $1 per million requests).
+At the assumed volume (~3,000 requests/month) **all four stay within their free
+allowances**. The exception is API Gateway HTTP API, which has no perpetual free tier, so
+AWS accrues a small charge proportional to request count (roughly $1 per million
+requests).
 
 ### Thresholds worth knowing
 
@@ -105,17 +118,33 @@ Lambda includes a perpetual free tier of 1M requests and 400,000 GB-seconds per 
 Logs are billed on ingestion volume. This template manages retention explicitly via
 `LogRetentionDays` (default 30), so logs do not accumulate indefinitely.
 
+**Google Cloud / Azure — cold starts are the price of $0 idle**
+
+Both default to scaling to zero, so an idle deployment costs nothing but the first
+request after a quiet period pays container startup. Raising `min_instances` /
+`minReplicas` to 1 removes that, and is the single change most likely to turn a
+near-zero bill into a real one — keeping one small always-on instance costs roughly
+$10–20/month on either platform.
+
+**Google Cloud / Azure — no per-user authentication cost**
+
+Signing in with a Google account or with Entra ID does not bill per user for this use.
+Unlike Cloudflare's 50-user Zero Trust line, headcount is not the variable that changes
+the bill.
+
 ### Summary
 
-| Scale | Cloudflare | AWS |
-|---|---|---|
-| Personal | roughly $0 | ~$1/month |
-| Tens of users (≤50) | roughly $0–$5 | $1 to a few dollars/month |
-| 51+ users | Zero Trust switches to per-user billing | depends on the Cognito MAU free tier |
+| Scale | Cloudflare | AWS | Google Cloud | Azure |
+|---|---|---|---|---|
+| Personal | roughly $0 | ~$1/month | roughly $0 | ~$5/month |
+| Tens of users (≤50) | roughly $0–$5 | $1 to a few dollars/month | roughly $0–$2 | ~$5–7/month |
+| 51+ users | Zero Trust switches to per-user billing | depends on the Cognito MAU free tier | no per-user cost | no per-user cost |
 
-**For small teams Cloudflare is cheaper and has no fixed cost.** AWS carries the Secrets
-Manager fixed cost but is worth it if you want to consolidate into an existing AWS
-footprint or govern access through IAM.
+**For small teams Cloudflare and Google Cloud are the cheapest, with no fixed cost.**
+AWS carries the Secrets Manager fixed cost and Azure the registry fixed cost; both are
+worth it if you want to consolidate into an existing footprint or govern access through
+that cloud's IAM. Above 50 users, Cloudflare is the only one where the bill grows with
+headcount.
 
 ## Setup
 
