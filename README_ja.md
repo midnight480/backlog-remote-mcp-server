@@ -149,15 +149,93 @@ npm install
 
 ## アーキテクチャ
 
+同じ MCP サーバを 2 つのプラットフォームで動かします。`src/core` が共通部分で、
+その下がプラットフォームごとの配線です。
+
+```mermaid
+flowchart TB
+    subgraph clients["MCP クライアント"]
+        direction LR
+        CC["Claude Code<br/><i>ネイティブ HTTP transport</i>"]
+        CD["Claude Desktop / Kiro / Cursor<br/><i>mcp-remote プロキシ / .mcpb</i>"]
+    end
+
+    subgraph cf["Cloudflare &nbsp;&nbsp; src/platforms/cloudflare"]
+        direction TB
+        CFW["Workers &nbsp;&nbsp; <i>OAuthProvider</i>"]
+        CFA["Cloudflare Access<br/><i>または Google / Entra ID</i>"]
+        CFKV["KV &nbsp;&nbsp; <i>OAUTH_KV</i>"]
+        CFDO["Durable Object<br/><i>BacklogMCP セッション</i>"]
+        CFW -. "OIDC" .-> CFA
+        CFW --- CFKV
+        CFW --> CFDO
+    end
+
+    subgraph aws["AWS &nbsp;&nbsp; src/platforms/aws"]
+        direction TB
+        APIGW["API Gateway<br/><i>HTTP API + ACM + Route 53</i>"]
+        LAMBDA["Lambda &nbsp;&nbsp; <i>nodejs22 / arm64</i>"]
+        COG["Amazon Cognito<br/><i>+ Google IdP</i>"]
+        DDB["DynamoDB &nbsp;&nbsp; <i>OAuth の状態</i>"]
+        SM["Secrets Manager<br/><i>Backlog API キー</i>"]
+        APIGW --> LAMBDA
+        LAMBDA -. "OIDC" .-> COG
+        LAMBDA --- DDB
+        LAMBDA --- SM
+    end
+
+    subgraph shared["src/core &nbsp;&nbsp; 実行環境に依存しない部分"]
+        direction TB
+        CS["create-server.ts<br/><i>ツール登録 + 許可リスト判定</i>"]
+        TOOLS["tools/ &nbsp;&nbsp; <i>MCP ツール 158 個</i>"]
+        BC["backlog-client.ts<br/><i>スペース振り分け + readOnly ガード</i>"]
+        CS --> TOOLS --> BC
+    end
+
+    subgraph backlog["Backlog"]
+        direction LR
+        BLA["スペース A"]
+        BLB["スペース B"]
+        BLC["スペース C ..."]
+    end
+
+    clients == "Streamable HTTP + OAuth" ==> CFW
+    clients == "Streamable HTTP + OAuth" ==> APIGW
+    CFDO --> CS
+    LAMBDA --> CS
+    BC == "スペースごとの API キー" ==> BLA
+    BC ==> BLB
+    BC ==> BLC
 ```
-MCP クライアント (Claude, Kiro, Cursor など)
-    ↓ Streamable HTTP + OAuth
-実行環境 (Cloudflare Workers または AWS Lambda)
-    ↓ 上流 IdP (Cloudflare Access または Amazon Cognito)
-    ↓ メールアドレスの許可リスト判定
-    ↓ Backlog API キーによるルーティング
-Backlog スペース A / B / C ...
+
+### リクエストの流れ
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as MCP クライアント
+    participant S as Worker / Lambda
+    participant I as 上流 IdP
+    participant B as Backlog
+
+    C->>S: POST /mcp
+    S-->>C: 401 + OAuth メタデータ
+    C->>S: 認可リクエスト
+    S->>I: 上流 OIDC へリダイレクト
+    I-->>S: コールバック (本人確認済み)
+    Note over S: メールアドレスの許可リスト判定<br/>不許可なら access_denied のみ
+    S-->>C: アクセストークン
+    C->>S: tools/list, tools/call
+    Note over S: スペース解決 → API キー選択<br/>readOnly ガードが書き込みを拒否
+    S->>B: Backlog REST API v2
+    B-->>S: JSON
+    S-->>C: MCP の結果
 ```
+
+認可は 2 段構えです。上流 IdP が「**誰がログインできるか**」を決め、メールアドレスの
+許可リストが「**誰にツールを見せるか**」を決めます。許可リスト外のユーザーには
+`access_denied` だけを持つサーバが返ります。スペースの `readOnly` は API 呼び出し層で
+GET 以外を拒否するため、個々のツール実装に穴があっても迂回できません。
 
 ### ディレクトリ構成
 
@@ -179,7 +257,6 @@ infra/
 `src/core` は `@modelcontextprotocol/sdk` と `zod` にしか依存せず、実行環境固有の
 API を一切参照しません。プラットフォームを追加する場合は `src/platforms/` 配下に
 アダプタを足すだけで、ツール実装をそのまま共有できます。
-
 ## MCPクライアントからの接続
 
 ### Claude Desktop / Kiro / Cursor (mcp-remoteプロキシ経由)
