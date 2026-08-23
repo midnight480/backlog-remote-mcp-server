@@ -168,7 +168,7 @@ Business logic is separated from runtime wiring.
 src/
   core/                    Runtime-independent
     backlog-client.ts      Backlog API client (including the readOnly guard)
-    tools/                 40 MCP tools
+    tools/                 158 MCP tools (full public API coverage)
     create-server.ts       MCP server assembly and authorization
   platforms/
     cloudflare/            Cloudflare Workers wiring

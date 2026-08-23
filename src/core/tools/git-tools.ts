@@ -6,9 +6,15 @@ import { z } from "zod";
 import {
 	type BacklogSpacesConfig,
 	callBacklogApi,
+	callBacklogApiBinary,
 	callBacklogApiForm,
 	resolveSpace,
 } from "../backlog-client";
+import { binaryToContent } from "./file-tools";
+
+const asText = (result: unknown) => ({
+	content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+});
 
 export function registerGitTools(server: McpServer, config: BacklogSpacesConfig) {
 	server.tool(
@@ -194,6 +200,134 @@ export function registerGitTools(server: McpServer, config: BacklogSpacesConfig)
 				body: { content },
 			});
 			return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+		},
+	);
+
+	const prPath = (projectIdOrKey: string, repoIdOrName: string, number: number) =>
+		`/projects/${encodeURIComponent(projectIdOrKey)}/git/repositories/` +
+		`${encodeURIComponent(repoIdOrName)}/pullRequests/${number}`;
+
+	server.tool(
+		"count_pull_requests",
+		"Returns the number of pull requests in a repository.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			repoIdOrName: z.string().describe("Repository ID or name."),
+		},
+		async ({ space: spaceName, projectIdOrKey, repoIdOrName }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					path:
+						`/projects/${encodeURIComponent(projectIdOrKey)}/git/repositories/` +
+						`${encodeURIComponent(repoIdOrName)}/pullRequests/count`,
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"count_pull_request_comments",
+		"Returns the number of comments on a pull request.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			repoIdOrName: z.string().describe("Repository ID or name."),
+			number: z.number().describe("Pull request number."),
+		},
+		async ({ space: spaceName, projectIdOrKey, repoIdOrName, number }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					path: `${prPath(projectIdOrKey, repoIdOrName, number)}/comments/count`,
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"update_pull_request_comment",
+		"Updates the content of a pull request comment.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			repoIdOrName: z.string().describe("Repository ID or name."),
+			number: z.number().describe("Pull request number."),
+			commentId: z.number().describe("Comment ID."),
+			content: z.string().describe("New comment content."),
+		},
+		async ({ space: spaceName, projectIdOrKey, repoIdOrName, number, commentId, content }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApiForm(spaceConfig, {
+					method: "PATCH",
+					path: `${prPath(projectIdOrKey, repoIdOrName, number)}/comments/${commentId}`,
+					body: { content },
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"get_pull_request_attachments",
+		"Returns the list of files attached to a pull request.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			repoIdOrName: z.string().describe("Repository ID or name."),
+			number: z.number().describe("Pull request number."),
+		},
+		async ({ space: spaceName, projectIdOrKey, repoIdOrName, number }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					path: `${prPath(projectIdOrKey, repoIdOrName, number)}/attachments`,
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"get_pull_request_attachment",
+		"Downloads a file attached to a pull request. Fails for files over 4MB.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			repoIdOrName: z.string().describe("Repository ID or name."),
+			number: z.number().describe("Pull request number."),
+			attachmentId: z.number().describe("Attachment ID."),
+		},
+		async ({ space: spaceName, projectIdOrKey, repoIdOrName, number, attachmentId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return binaryToContent(
+				await callBacklogApiBinary(spaceConfig, {
+					path: `${prPath(projectIdOrKey, repoIdOrName, number)}/attachments/${attachmentId}`,
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"delete_pull_request_attachment",
+		"Deletes a file attached to a pull request.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			repoIdOrName: z.string().describe("Repository ID or name."),
+			number: z.number().describe("Pull request number."),
+			attachmentId: z.number().describe("Attachment ID."),
+		},
+		async ({ space: spaceName, projectIdOrKey, repoIdOrName, number, attachmentId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			// 公式 SDK 0.19.1 はここで GET を発行するが、API 仕様上は DELETE。
+			// https://developer.nulab.com/docs/backlog/api/2/delete-pull-request-attachments/
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					method: "DELETE",
+					path: `${prPath(projectIdOrKey, repoIdOrName, number)}/attachments/${attachmentId}`,
+				}),
+			);
 		},
 	);
 }

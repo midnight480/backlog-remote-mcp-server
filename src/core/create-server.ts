@@ -7,11 +7,21 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type BacklogSpacesConfig, parseSpacesConfig } from "./backlog-client";
+import { registerDocumentTools } from "./tools/document-tools";
+import { registerCustomFieldTools } from "./tools/custom-field-tools";
+import { registerFileTools } from "./tools/file-tools";
 import { registerGitTools } from "./tools/git-tools";
+import { registerIssueMetadataTools } from "./tools/issue-metadata-tools";
 import { registerIssueTools } from "./tools/issue-tools";
 import { registerNotificationTools } from "./tools/notification-tools";
 import { registerProjectTools } from "./tools/project-tools";
 import { registerSpaceTools } from "./tools/space-tools";
+import { registerStarTools } from "./tools/star-tools";
+import { registerStatusTools } from "./tools/status-tools";
+import { registerTeamTools } from "./tools/team-tools";
+import { registerUserTools } from "./tools/user-tools";
+import { registerWatchingTools } from "./tools/watching-tools";
+import { registerWebhookTools } from "./tools/webhook-tools";
 import { registerWikiTools } from "./tools/wiki-tools";
 
 export const SERVER_NAME = "Backlog Remote MCP Server";
@@ -80,6 +90,16 @@ export function registerTools(server: McpServer, options: CreateServerOptions): 
 	registerProjectTools(server, config);
 	registerIssueTools(server, config);
 	registerWikiTools(server, config);
+	registerDocumentTools(server, config);
 	registerGitTools(server, config);
 	registerNotificationTools(server, config);
+	registerFileTools(server, config);
+	registerWebhookTools(server, config);
+	registerWatchingTools(server, config);
+	registerStatusTools(server, config);
+	registerCustomFieldTools(server, config);
+	registerTeamTools(server, config);
+	registerStarTools(server, config);
+	registerUserTools(server, config);
+	registerIssueMetadataTools(server, config);
 }

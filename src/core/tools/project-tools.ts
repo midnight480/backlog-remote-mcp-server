@@ -6,9 +6,16 @@ import { z } from "zod";
 import {
 	type BacklogSpacesConfig,
 	callBacklogApi,
+	callBacklogApiBinary,
 	callBacklogApiForm,
 	resolveSpace,
 } from "../backlog-client";
+import { binaryToContent } from "./file-tools";
+import { activityParams, toActivityQuery } from "./space-tools";
+
+const asText = (result: unknown) => ({
+	content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+});
 
 export function registerProjectTools(server: McpServer, config: BacklogSpacesConfig) {
 	server.tool(
@@ -128,6 +135,138 @@ export function registerProjectTools(server: McpServer, config: BacklogSpacesCon
 				path: `/projects/${projectIdOrKey}/users`,
 			});
 			return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+		},
+	);
+
+	server.tool(
+		"get_project_icon",
+		"Downloads a project icon image.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+		},
+		async ({ space: spaceName, projectIdOrKey }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return binaryToContent(
+				await callBacklogApiBinary(spaceConfig, {
+					path: `/projects/${encodeURIComponent(projectIdOrKey)}/image`,
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"get_project_activities",
+		"Returns recent activities in a project.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			...activityParams,
+		},
+		async ({ space: spaceName, projectIdOrKey, ...rest }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					path: `/projects/${encodeURIComponent(projectIdOrKey)}/activities`,
+					query: toActivityQuery(rest),
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"add_project_user",
+		"Adds a user to a project.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			userId: z.number().describe("User ID to add."),
+		},
+		async ({ space: spaceName, projectIdOrKey, userId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApiForm(spaceConfig, {
+					path: `/projects/${encodeURIComponent(projectIdOrKey)}/users`,
+					body: { userId },
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"delete_project_user",
+		"Removes a user from a project.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			userId: z.number().describe("User ID to remove."),
+		},
+		async ({ space: spaceName, projectIdOrKey, userId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			// DELETE でもパラメータはボディ (form-urlencoded) で送る
+			return asText(
+				await callBacklogApiForm(spaceConfig, {
+					method: "DELETE",
+					path: `/projects/${encodeURIComponent(projectIdOrKey)}/users`,
+					body: { userId },
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"get_project_administrators",
+		"Returns the list of administrators of a project.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+		},
+		async ({ space: spaceName, projectIdOrKey }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					path: `/projects/${encodeURIComponent(projectIdOrKey)}/administrators`,
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"add_project_administrator",
+		"Grants a user administrator rights on a project.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			userId: z.number().describe("User ID."),
+		},
+		async ({ space: spaceName, projectIdOrKey, userId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApiForm(spaceConfig, {
+					path: `/projects/${encodeURIComponent(projectIdOrKey)}/administrators`,
+					body: { userId },
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"delete_project_administrator",
+		"Revokes a user's administrator rights on a project.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			projectIdOrKey: z.string().describe("Project ID or project key."),
+			userId: z.number().describe("User ID."),
+		},
+		async ({ space: spaceName, projectIdOrKey, userId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApiForm(spaceConfig, {
+					method: "DELETE",
+					path: `/projects/${encodeURIComponent(projectIdOrKey)}/administrators`,
+					body: { userId },
+				}),
+			);
 		},
 	);
 }

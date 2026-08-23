@@ -10,6 +10,10 @@ import {
 	resolveSpace,
 } from "../backlog-client";
 
+const asText = (result: unknown) => ({
+	content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+});
+
 export function registerIssueTools(server: McpServer, config: BacklogSpacesConfig) {
 	server.tool(
 		"get_issue",
@@ -338,6 +342,240 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 			const spaceConfig = resolveSpace(config, spaceName);
 			const result = await callBacklogApi(spaceConfig, { path: "/resolutions" });
 			return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+		},
+	);
+
+	const issuePath = (issueIdOrKey: string) => `/issues/${encodeURIComponent(issueIdOrKey)}`;
+
+	server.tool(
+		"count_issue_comments",
+		"Returns the number of comments on an issue.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+		},
+		async ({ space: spaceName, issueIdOrKey }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, { path: `${issuePath(issueIdOrKey)}/comments/count` }),
+			);
+		},
+	);
+
+	server.tool(
+		"get_issue_comment",
+		"Returns a specific comment on an issue.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+			commentId: z.number().describe("Comment ID."),
+		},
+		async ({ space: spaceName, issueIdOrKey, commentId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					path: `${issuePath(issueIdOrKey)}/comments/${commentId}`,
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"update_issue_comment",
+		"Updates the content of a comment on an issue.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+			commentId: z.number().describe("Comment ID."),
+			content: z.string().describe("New comment content."),
+		},
+		async ({ space: spaceName, issueIdOrKey, commentId, content }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApiForm(spaceConfig, {
+					method: "PATCH",
+					path: `${issuePath(issueIdOrKey)}/comments/${commentId}`,
+					body: { content },
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"delete_issue_comment",
+		"Deletes a comment on an issue.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+			commentId: z.number().describe("Comment ID."),
+		},
+		async ({ space: spaceName, issueIdOrKey, commentId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					method: "DELETE",
+					path: `${issuePath(issueIdOrKey)}/comments/${commentId}`,
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"get_issue_comment_notifications",
+		"Returns the notification list of a comment.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+			commentId: z.number().describe("Comment ID."),
+		},
+		async ({ space: spaceName, issueIdOrKey, commentId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					path: `${issuePath(issueIdOrKey)}/comments/${commentId}/notifications`,
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"add_issue_comment_notification",
+		"Notifies users about an existing comment.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+			commentId: z.number().describe("Comment ID."),
+			notifiedUserId: z.array(z.number()).describe("User IDs to notify."),
+		},
+		async ({ space: spaceName, issueIdOrKey, commentId, notifiedUserId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApiForm(spaceConfig, {
+					path: `${issuePath(issueIdOrKey)}/comments/${commentId}/notifications`,
+					body: { notifiedUserId },
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"get_issue_participants",
+		"Returns the list of participants of an issue.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+		},
+		async ({ space: spaceName, issueIdOrKey }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, { path: `${issuePath(issueIdOrKey)}/participants` }),
+			);
+		},
+	);
+
+	server.tool(
+		"get_issue_shared_files",
+		"Returns the shared files linked to an issue.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+		},
+		async ({ space: spaceName, issueIdOrKey }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, { path: `${issuePath(issueIdOrKey)}/sharedFiles` }),
+			);
+		},
+	);
+
+	server.tool(
+		"link_issue_shared_files",
+		"Links shared files to an issue.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+			fileId: z.array(z.number()).describe("Shared file IDs, from get_shared_files."),
+		},
+		async ({ space: spaceName, issueIdOrKey, fileId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApiForm(spaceConfig, {
+					path: `${issuePath(issueIdOrKey)}/sharedFiles`,
+					body: { fileId },
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"unlink_issue_shared_file",
+		"Removes the link between a shared file and an issue. The file itself is not deleted.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+			fileId: z.number().describe("Shared file ID."),
+		},
+		async ({ space: spaceName, issueIdOrKey, fileId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					method: "DELETE",
+					path: `${issuePath(issueIdOrKey)}/sharedFiles/${fileId}`,
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"get_related_issues",
+		"Returns the issues related to an issue.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+		},
+		async ({ space: spaceName, issueIdOrKey }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, { path: `${issuePath(issueIdOrKey)}/relatedIssues` }),
+			);
+		},
+	);
+
+	server.tool(
+		"add_related_issue",
+		"Relates another issue to this issue.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+			relatedIssueId: z.number().describe("Numeric ID of the issue to relate."),
+		},
+		async ({ space: spaceName, issueIdOrKey, relatedIssueId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApiForm(spaceConfig, {
+					path: `${issuePath(issueIdOrKey)}/relatedIssues`,
+					body: { relatedIssueId },
+				}),
+			);
+		},
+	);
+
+	server.tool(
+		"remove_related_issue",
+		"Removes a relation between two issues.",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			issueIdOrKey: z.string().describe("Issue ID or issue key."),
+			relatedIssueId: z.number().describe("Numeric ID of the related issue."),
+		},
+		async ({ space: spaceName, issueIdOrKey, relatedIssueId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(
+				await callBacklogApi(spaceConfig, {
+					method: "DELETE",
+					path: `${issuePath(issueIdOrKey)}/relatedIssues/${relatedIssueId}`,
+				}),
+			);
 		},
 	);
 }
