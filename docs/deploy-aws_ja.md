@@ -225,10 +225,28 @@ npm run check:local -- --base https://<PublicBaseUrl>
 | `npm run aws:secrets:dry-run` | 送信されるシークレット名の確認 (値は非表示) |
 | `npm run aws:request-cert` | ACM 証明書の発行と検証待ち |
 
+## リージョン
+
+既定は `ap-northeast-1` です。優先順位は `--region` 引数 > `AWS_REGION` 環境変数 >
+既定値で、`aws:secrets:push` や `aws:request-cert` と揃えてあります。
+
+```bash
+npm run aws:deploy -- --region ap-northeast-1   # 明示する場合
+AWS_REGION=ap-northeast-1 npm run aws:deploy    # 環境変数で指定する場合
+```
+
+**AWS プロファイルの既定リージョンは参照しません。** 以前は `sam deploy` に
+`--region` が無く、プロファイルの既定 (例: `us-east-1`) へ向かって別リージョンに
+二つ目のスタックを作るか、証明書のリージョン不一致で失敗する状態でした。
+
+ACM 証明書はリージョンをまたいで参照できないため、デプロイ先と
+`infra/aws/params.yaml` の `AcmCertificateArn` のリージョンが食い違う場合は
+デプロイ前に停止します。
+
 ## スタック名を変える
 
-既定は `backlog-mcp-aws` です。変更する場合は `package.json` の `aws:deploy` にある
-`--stack-name` を書き換えてください。
+既定は `backlog-mcp-aws` です。変更する場合は `npm run aws:deploy -- --stack <name>`
+を使うか、`scripts/aws-deploy.mjs` の既定値を書き換えてください。
 
 **CloudFormation はスタック名を変更できません。** 名前を変えるとスタックの
 作り直し (削除 → 再作成) になります。API Gateway のカスタムドメインも作り直されるため、
