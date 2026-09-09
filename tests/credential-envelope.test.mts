@@ -9,9 +9,10 @@
 //   npm run test:envelope
 
 import {
-  attach, clearEnvelopeCookie, detach, envelopeCookie,
-  openCredentials, readEnvelopeCookie, sealCredentials,
-} from "../src/oauth/credential-envelope.ts";
+  attach, attachEnvelopeToTokenResponse, clearEnvelopeCookie, detach, envelopeCookie,
+  INTERNAL_ENVELOPE_HEADER, moveEnvelopeToInternalHeader, openCredentials,
+  readEnvelopeCookie, sealCredentials, stripEnvelopeFromTokenRequest,
+} from "../src/core/credential-envelope.ts";
 import { McpOAuthProvider } from "../src/oauth/provider.ts";
 import type { AuthStore } from "../src/oauth/store.ts";
 import { CREDENTIAL_FIELD_PREFIX, renderApprovalDialog } from "../src/oauth/consent.ts";
@@ -24,22 +25,22 @@ const ok = (n: string, c: boolean, e = "") => { console.log(`  ${c ? "OK " : "NG
 
 console.log("封をする / 開ける:");
 {
-  const sealed = sealCredentials({ work: USER_KEY }, SECRET);
+  const sealed = await sealCredentials({ work: USER_KEY }, SECRET);
   ok("封筒に平文が現れない", !sealed.includes(USER_KEY));
-  ok("同じ鍵で開ける", openCredentials(sealed, SECRET)?.work === USER_KEY);
-  ok("違う鍵では開かない", openCredentials(sealed, "another-secret-0123456789abcdef") === undefined);
-  ok("毎回異なる暗号文", sealCredentials({ work: USER_KEY }, SECRET) !== sealed);
+  ok("同じ鍵で開ける", (await openCredentials(sealed, SECRET))?.work === USER_KEY);
+  ok("違う鍵では開かない", (await openCredentials(sealed, "another-secret-0123456789abcdef")) === undefined);
+  ok("毎回異なる暗号文", (await sealCredentials({ work: USER_KEY }, SECRET)) !== sealed);
 
   // AES-GCM の認証タグが効いているか。1 文字変えたら開かない。
   const flipped = sealed.slice(0, -2) + (sealed.slice(-2, -1) === "A" ? "B" : "A") + sealed.slice(-1);
-  ok("改竄した封筒は開かない", openCredentials(flipped, SECRET) === undefined);
-  ok("壊れた入力でも例外を投げない", openCredentials("not-base64url!!", SECRET) === undefined);
-  ok("空文字でも例外を投げない", openCredentials("", SECRET) === undefined);
+  ok("改竄した封筒は開かない", (await openCredentials(flipped, SECRET)) === undefined);
+  ok("壊れた入力でも例外を投げない", (await openCredentials("not-base64url!!", SECRET)) === undefined);
+  ok("空文字でも例外を投げない", (await openCredentials("", SECRET)) === undefined);
 }
 
 console.log("識別子と封筒の連結:");
 {
-  const sealed = sealCredentials({ work: USER_KEY }, SECRET);
+  const sealed = await sealCredentials({ work: USER_KEY }, SECRET);
   const token = attach("abc123", sealed);
   ok("識別子を取り出せる", detach(token).id === "abc123");
   ok("封筒を取り出せる", detach(token).sealed === sealed);
@@ -56,9 +57,12 @@ console.log("Cookie:");
   ok("HttpOnly/Secure/SameSite", c.includes("HttpOnly") && c.includes("Secure") && c.includes("SameSite=Lax"));
   ok("寿命は短い", /Max-Age=600\b/.test(c));
   ok("破棄用は Max-Age=0", /Max-Age=0\b/.test(clearEnvelopeCookie));
-  const req = { headers: { cookie: "__Host-BACKLOG_CREDENTIALS=sealed-value" } } as any;
-  ok("Cookie から読める", readEnvelopeCookie(req) === "sealed-value");
-  ok("無ければ undefined", readEnvelopeCookie({ headers: {} } as any) === undefined);
+  ok("Cookie から読める",
+    readEnvelopeCookie("__Host-BACKLOG_CREDENTIALS=sealed-value") === "sealed-value");
+  ok("他の Cookie に混ざっていても読める",
+    readEnvelopeCookie("a=1; __Host-BACKLOG_CREDENTIALS=sealed-value; b=2") === "sealed-value");
+  ok("無ければ undefined", readEnvelopeCookie("a=1") === undefined);
+  ok("ヘッダ自体が無くても undefined", readEnvelopeCookie(undefined) === undefined);
 }
 
 console.log("同意画面の入力欄:");
@@ -106,6 +110,70 @@ function spyStore() {
   return { store, writes, tokens };
 }
 
+console.log("認可サーバの手前での出し入れ (Cloudflare 版のラッパ):");
+{
+  const sealed = await sealCredentials({ work: USER_KEY }, SECRET);
+
+  // トークン要求: code から封筒を外し、他のフィールドは触らない
+  const form = new FormData();
+  form.set("grant_type", "authorization_code");
+  form.set("code", attach("code-id", sealed));
+  form.set("code_verifier", "verifier-value");
+  ok("code から封筒を外す", stripEnvelopeFromTokenRequest(form) === sealed);
+  ok("code は識別子だけになる", form.get("code") === "code-id");
+  ok("他のフィールドは残る",
+    form.get("grant_type") === "authorization_code" && form.get("code_verifier") === "verifier-value");
+
+  // リフレッシュ要求でも拾う
+  const refreshForm = new FormData();
+  refreshForm.set("refresh_token", attach("refresh-id", sealed));
+  ok("refresh_token からも外す", stripEnvelopeFromTokenRequest(refreshForm) === sealed);
+  ok("refresh_token も識別子だけ", refreshForm.get("refresh_token") === "refresh-id");
+
+  // 封筒が無いときは何も変えない
+  const plain = new FormData();
+  plain.set("code", "plain-code");
+  ok("封筒が無ければ undefined", stripEnvelopeFromTokenRequest(plain) === undefined);
+  ok("封筒が無ければ書き換えない", plain.get("code") === "plain-code");
+
+  // 発行された両トークンに付け直す
+  const issued = attachEnvelopeToTokenResponse(
+    { access_token: "at", refresh_token: "rt", token_type: "bearer", expires_in: 3600 },
+    sealed,
+  );
+  ok("アクセストークンに付け直す", detach(issued.access_token as string).sealed === sealed);
+  ok("リフレッシュトークンにも付け直す", detach(issued.refresh_token as string).sealed === sealed);
+  ok("他のフィールドは触らない", issued.token_type === "bearer" && issued.expires_in === 3600);
+
+  // Authorization ヘッダから内部ヘッダへ移し替える
+  const headers = new Headers({ authorization: `Bearer ${attach("token-id", sealed)}` });
+  moveEnvelopeToInternalHeader(headers);
+  ok("認可サーバには識別子だけ渡る", headers.get("authorization") === "Bearer token-id");
+  ok("封筒は内部ヘッダへ", headers.get(INTERNAL_ENVELOPE_HEADER) === sealed);
+
+  // クライアントが内部ヘッダを詐称してきても必ず捨てる
+  const spoofed = new Headers({
+    authorization: "Bearer plain-token",
+    [INTERNAL_ENVELOPE_HEADER]: "attacker-supplied",
+  });
+  moveEnvelopeToInternalHeader(spoofed);
+  ok("詐称された内部ヘッダを捨てる", spoofed.get(INTERNAL_ENVELOPE_HEADER) === null);
+  ok("封筒なしの認可ヘッダは素通し", spoofed.get("authorization") === "Bearer plain-token");
+
+  // 封筒付きトークンと詐称ヘッダが同時に来ても、勝つのはトークン側
+  const both = new Headers({
+    authorization: `Bearer ${attach("token-id", sealed)}`,
+    [INTERNAL_ENVELOPE_HEADER]: "attacker-supplied",
+  });
+  moveEnvelopeToInternalHeader(both);
+  ok("内部ヘッダはトークン由来の値で上書き", both.get(INTERNAL_ENVELOPE_HEADER) === sealed);
+
+  // Bearer 以外は触らない
+  const basic = new Headers({ authorization: "Basic dXNlcjpwYXNz" });
+  moveEnvelopeToInternalHeader(basic);
+  ok("Bearer 以外は素通し", basic.get("authorization") === "Basic dXNlcjpwYXNz");
+}
+
 console.log("認可フロー全体でキーが保存されないか:");
 {
   const spy = spyStore();
@@ -124,7 +192,7 @@ console.log("認可フロー全体でキーが保存されないか:");
   });
 
   // 同意画面で入力された想定の封筒を Cookie から受け取り、認可コードへ載せる
-  const sealed = sealCredentials({ work: USER_KEY }, SECRET);
+  const sealed = await sealCredentials({ work: USER_KEY }, SECRET);
   await spy.store.putUpstreamState({
     state: "state-1", clientId: "client-A", redirectUri: "https://ok.example/cb",
     codeChallenge: "chal", scopes: [], upstreamCodeVerifier: "ver",

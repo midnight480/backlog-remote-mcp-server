@@ -169,16 +169,18 @@ The trade-off is that the sealed key rides in the refresh token, which is long-l
 Treat those tokens as you would the key itself, and revoke from Backlog Personal
 Settings → API if a client is compromised.
 
+The OAuth tokens themselves are stored server-side, as before — the identifier,
+client, scopes, and your email address. It is only the Backlog key that is not.
+
 ### Platform support
 
-The consent-screen path works on **AWS, Google Cloud, and Azure**, which run this
-project's own authorization server.
+Both paths work on all four deployments.
 
-On **Cloudflare** the authorization server is `@cloudflare/workers-oauth-provider`,
-which owns the token format and stores its own encrypted copy of any data attached
-to a grant. There is no way to carry the key without it being written to KV, so
-that path is not enabled there. Cloudflare deployments can use the header path
-(all JSON-configured clients) or a shared `apiKey`.
+On Cloudflare the authorization server is `@cloudflare/workers-oauth-provider`,
+which owns the token format and encrypts anything attached to a grant into KV. To
+keep the Backlog key out of KV entirely, the key is never handed to that library:
+the Worker unwraps the sealed half before delegating to it and re-attaches it to
+the tokens on the way back out. KV holds only OAuth data.
 
 ## Important Notes
 

@@ -39,13 +39,12 @@ import {
 } from "./consent";
 import {
 	attach,
-	clearEnvelopeCookie,
+	collectCredentialFields,
 	detach,
 	envelopeCookie,
 	openCredentials,
-	readEnvelopeCookie,
 	sealCredentials,
-} from "./credential-envelope";
+} from "../core/credential-envelope";
 import type { UserApiKeys } from "../core/credentials";
 import type { AuthStore } from "./store";
 import { createPkcePair, type UpstreamClient } from "./upstream";
@@ -152,10 +151,20 @@ export class McpOAuthProvider implements OAuthServerProvider {
 				);
 				// 入力されたキーを封じ、ブラウザに預けて上流 IdP を往復させる。
 				// サーバ側には保存しない。
-				const entered = collectCredentialFields(req.body, credentialSpaces);
+				const entered = collectCredentialFields(
+					(field) => {
+						const body = req.body as Record<string, unknown> | undefined;
+						const value = body?.[field];
+						return typeof value === "string" ? value : undefined;
+					},
+					credentialSpaces,
+					CREDENTIAL_FIELD_PREFIX,
+				);
 				if (Object.keys(entered).length > 0) {
 					extraHeaders.push(
-						envelopeCookie(sealCredentials(entered, this.config.envelopeSecret as string)),
+						envelopeCookie(
+							await sealCredentials(entered, this.config.envelopeSecret as string),
+						),
 					);
 				}
 			} else {
@@ -321,7 +330,7 @@ export class McpOAuthProvider implements OAuthServerProvider {
 		// 封筒はこのリクエストの間だけ開く。開いた中身は保存しない。
 		const userKeys =
 			sealed && this.envelopeEnabled()
-				? openCredentials(sealed, this.config.envelopeSecret as string)
+				? await openCredentials(sealed, this.config.envelopeSecret as string)
 				: undefined;
 		return {
 			token,
@@ -392,24 +401,4 @@ export class McpOAuthProvider implements OAuthServerProvider {
 			scope: scopes.join(" "),
 		};
 	}
-}
-
-/**
- * 同意画面のフォームから本人のキーを取り出す。
- *
- * 設定にあるスペース名しか見ない。フォームは利用者が細工できるため、
- * 知らないフィールドを拾って後段へ流さない。
- */
-function collectCredentialFields(body: unknown, spaces: string[]): UserApiKeys {
-	const keys: UserApiKeys = {};
-	if (!body || typeof body !== "object") return keys;
-	const form = body as Record<string, unknown>;
-	for (const space of spaces) {
-		const value = form[`${CREDENTIAL_FIELD_PREFIX}${space}`];
-		if (typeof value !== "string") continue;
-		const trimmed = value.trim();
-		// 空欄は「そのスペースは使わない」の意思表示として扱う
-		if (trimmed.length > 0) keys[space.toLowerCase()] = trimmed;
-	}
-	return keys;
 }

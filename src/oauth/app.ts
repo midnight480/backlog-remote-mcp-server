@@ -23,7 +23,7 @@ import {
 	parseApiKeyHeaders,
 	type UserApiKeys,
 } from "../core/credentials";
-import { clearEnvelopeCookie, readEnvelopeCookie } from "./credential-envelope";
+import { clearEnvelopeCookie, readEnvelopeCookie } from "../core/credential-envelope";
 import type { McpOAuthProvider } from "./provider";
 import { toWebRequest, writeWebResponse } from "./web-bridge";
 
@@ -78,7 +78,7 @@ export function createApp(config: AppConfig) {
 		try {
 			// 同意画面で預かった封筒はここで取り出し、認可コードへ載せ替える。
 			// ブラウザに残す理由はないので、成否にかかわらず捨てる。
-			const sealed = readEnvelopeCookie(req);
+			const sealed = readEnvelopeCookie(req.headers.cookie);
 			res.setHeader("Set-Cookie", clearEnvelopeCookie);
 			const redirectTo = await config.provider.handleUpstreamCallback(code, state, sealed);
 			res.redirect(redirectTo);
