@@ -369,14 +369,45 @@ Backlog クライアントはそのまま再利用されます。
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://<MCP_HOSTNAME>/mcp"
-      ]
+        "https://<MCP_HOSTNAME>/mcp",
+        "--header",
+        "X-Backlog-Api-Key:${BACKLOG_API_KEY}"
+      ],
+      "env": {
+        "BACKLOG_API_KEY": "本人の Backlog API キー"
+      }
     }
   }
 }
 ```
 
 初回接続時にブラウザが開き、認証を求められます。
+
+Backlog 側に共有のシステムユーザーではなく本人として記録させるのが `--header` です。
+**`:` の前後に空白を入れず**、値は `env` に置いてください。引数の中に空白があると
+正しく扱えないクライアントがあります。サーバ側に共有キー (`apiKey`) が設定されている
+スペースだけを使う場合は、このヘッダと `env` は不要です。
+
+複数スペースを使う場合は `X-Backlog-Api-Keys:${...}` に `スペース名=キー` を並べます。
+どちらの形式も [利用者ごとの API キー](docs/backlog_ja.md#利用者ごとのapiキー) を参照してください。
+
+キーを `args` に直接書くとプロセス一覧に残り、同じマシンの他の利用者から読めて
+しまいます。上の `env` 形式ならそれを避けられます。`${BACKLOG_API_KEY}` の展開は
+mcp-remote 自身が行うため、引数に現れるのはプレースホルダだけです。環境変数にも
+置きたくない場合は、ファイルで渡せます。
+
+```json
+      "args": [
+        "mcp-remote",
+        "https://<MCP_HOSTNAME>/mcp",
+        "--header-file",
+        "/path/to/headers.txt"
+      ]
+```
+
+```
+X-Backlog-Api-Key: 本人の Backlog API キー
+```
 
 ### Claude Desktop (.mcpb バンドル)
 
@@ -387,6 +418,10 @@ Backlog クライアントはそのまま再利用されます。
 npm run mcpb:pack           # 単体で生成
 npm run aws:deploy          # デプロイのついでに生成 (Cloudflare は npm run cloudflare:deploy)
 ```
+
+バンドルは API キーを受け取りません。引数が固定でヘッダを差し込む場所がないためです。
+バンドルで導入した利用者は、認可のときに出る同意画面でキーを渡してください
+([利用者ごとの API キー](docs/backlog_ja.md#利用者ごとのapiキー))。
 
 エンドポイント URL は `user_config` になっており、**デプロイ先のドメインが
 既定値として埋め込まれます**。フォークして自分の環境にデプロイした場合は、
