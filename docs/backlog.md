@@ -138,6 +138,28 @@ expands environment variables listed in its *Mcp Approved Env Vars* setting:
 Prefer the environment-variable form over pasting the key into the file — these
 config files tend to end up in Git.
 
+#### Several spaces at once
+
+Swap the singular header for the plural one and list one `SPACE=key` pair per
+space. The value is the same string in every client, so only the header name and
+the surrounding syntax change:
+
+```json
+      "headers": { "X-Backlog-Api-Keys": "${BACKLOG_API_KEYS}" }
+```
+
+```toml
+env_http_headers = { "X-Backlog-Api-Keys" = "BACKLOG_API_KEYS" }
+```
+
+```bash
+export BACKLOG_API_KEYS="WORK=key-for-work,SHARED=key-for-shared"
+```
+
+Both headers can be sent together: `X-Backlog-Api-Key` covers `defaultSpace` and
+`X-Backlog-Api-Keys` covers the rest. Naming the same space twice is an error
+rather than a silent winner, so pick one or the other for any given space.
+
 Note that the header does not replace signing in. `/mcp` still sits behind the
 OAuth flow, so the first connection opens a browser regardless. The two
 credentials answer different questions: OAuth decides *who may use this server*,

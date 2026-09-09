@@ -370,14 +370,72 @@ per-client configuration.
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://<MCP_HOSTNAME>/mcp"
-      ]
+        "https://<MCP_HOSTNAME>/mcp",
+        "--header",
+        "X-Backlog-Api-Key:${BACKLOG_API_KEY}"
+      ],
+      "env": {
+        "BACKLOG_API_KEY": "your-own-backlog-api-key"
+      }
     }
   }
 }
 ```
 
 On first connection, a browser window opens for authentication.
+
+`--header` is what makes Backlog record the work as you rather than as a shared
+system user. Write it with **no space around the `:`** and put the value in `env`
+— some clients mishandle spaces inside an argument. Drop the header and the `env`
+block if the space you are using has a shared `apiKey` configured on the server.
+
+Serving several Backlog spaces? Swap in the plural header and list one `SPACE=key`
+pair per space, separated by commas:
+
+```json
+{
+  "mcpServers": {
+    "backlog": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://<MCP_HOSTNAME>/mcp",
+        "--header",
+        "X-Backlog-Api-Keys:${BACKLOG_API_KEYS}"
+      ],
+      "env": {
+        "BACKLOG_API_KEYS": "WORK=key-for-work,SHARED=key-for-shared"
+      }
+    }
+  }
+}
+```
+
+The space names are the `name` values from `BACKLOG_SPACES_CONFIG`, matched
+case-insensitively. Name a space that is not configured and the request is rejected
+rather than quietly falling back to a shared key. List only the spaces you have a key
+for; the rest keep whatever the server is configured with. `list_spaces` shows which
+spaces ended up with a usable key. See
+[Per-user API keys](docs/backlog.md#per-user-api-keys) for both header formats.
+
+Writing the key literally into `args` would leave it in the process list, readable
+by anyone else on the machine. The `env` form above avoids that — mcp-remote does
+the `${BACKLOG_API_KEY}` substitution itself, so only the placeholder ever appears
+in the arguments. A header file works too, and keeps the key out of the
+environment as well:
+
+```json
+      "args": [
+        "mcp-remote",
+        "https://<MCP_HOSTNAME>/mcp",
+        "--header-file",
+        "/path/to/headers.txt"
+      ]
+```
+
+```
+X-Backlog-Api-Key: your-own-backlog-api-key
+```
 
 ### Claude Desktop (.mcpb bundle)
 
@@ -388,6 +446,10 @@ Instead of hand-editing the JSON above, you can double-click a `.mcpb`
 npm run mcpb:pack           # generate on its own
 npm run aws:deploy          # generated as part of the deploy (Cloudflare: npm run cloudflare:deploy)
 ```
+
+The bundle takes no API key: its arguments are fixed, so there is nowhere to put a
+header. Bundle users supply their key on the consent screen that appears during
+authorization instead — see [Per-user API keys](docs/backlog.md#per-user-api-keys).
 
 The endpoint URL is a `user_config` field, and **the domain you deployed to is
 baked in as its default**. If you fork this and deploy to your own environment,
