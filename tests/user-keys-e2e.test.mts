@@ -13,7 +13,7 @@
 
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createMcpServer } from "../src/core/create-server.ts";
-import { parseApiKeyHeaders } from "../src/core/credentials.ts";
+import { parseApiKeyHeaders, parseClientSpaces } from "../src/core/credentials.ts";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, e = "") => { console.log(`  ${c ? "OK " : "NG "} ${n}${e}`); c ? pass++ : fail++; };
@@ -46,15 +46,17 @@ function stubBacklog() {
  * 戻り値は捕まえた Backlog への URL と、MCP の応答。
  */
 async function callTool(opts: {
-  headers?: { single?: string; list?: string };
+  headers?: { single?: string; list?: string; spaces?: string };
   userEmail?: string;
   args?: Record<string, unknown>;
+  spacesConfig?: string;
 }) {
   const server = createMcpServer({
-    spacesConfig: SPACES,
+    spacesConfig: opts.spacesConfig ?? SPACES,
     allowedEmails: ALLOWED,
     userEmail: opts.userEmail ?? "user@example.com",
     userKeys: parseApiKeyHeaders(opts.headers?.single, opts.headers?.list),
+    clientSpaces: opts.headers?.spaces ? parseClientSpaces(opts.headers.spaces) : undefined,
   });
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -175,6 +177,39 @@ console.log("キーがどこにも無いスペースの表示:");
   ok("キーが無ければ missing", spaces.find((s) => s.name === "WORK")?.credential === "missing",
     ` (${spaces.find((s) => s.name === "WORK")?.credential})`);
   ok("呼び出しは失敗している", r.urls.length === 0);
+}
+
+console.log("クライアントが宣言したスペース:");
+{
+  const BYO = JSON.stringify({ spaces: [], allowClientSpaces: true });
+  const r = await callTool({
+    spacesConfig: BYO,
+    headers: { spaces: "MINE=mine.backlog.jp", list: "MINE=my-key" },
+    args: { space: "MINE" },
+  });
+  ok("宣言したホストへ飛ぶ", r.urls[0]?.startsWith("https://mine.backlog.jp/api/v2/space"), ` (${r.urls[0]})`);
+  ok("本人のキーが渡る", apiKeyOf(r.urls) === "my-key", ` (${apiKeyOf(r.urls)})`);
+}
+{
+  // 許可外ドメインはサーバの組み立て時点で弾かれる。ツール呼び出しまで到達せず、
+  // 各プラットフォームの入口が InvalidCredentialError を 400 に変換する。
+  const BYO = JSON.stringify({ spaces: [], allowClientSpaces: true });
+  const stub = stubBacklog();
+  let message = "";
+  try {
+    await callTool({
+      spacesConfig: BYO,
+      headers: { spaces: "MINE=169.254.169.254", list: "MINE=my-key" },
+      args: { space: "MINE" },
+    });
+  } catch (e) {
+    message = e instanceof Error ? e.message : String(e);
+  } finally {
+    stub.restore();
+  }
+  ok("許可外ホストは組み立て時点で拒否", message.length > 0);
+  ok("Backlog へは 1 回も出さない", stub.urls.length === 0, ` (${stub.urls.length} 回)`);
+  ok("理由を伝える", message.includes("169.254.169.254"), ` ${message.slice(0, 100)}`);
 }
 
 console.log("認可されていない利用者:");

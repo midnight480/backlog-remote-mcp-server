@@ -45,7 +45,9 @@ If you have multiple spaces, repeat the above for each one. Then format them int
 | `domain` | ✅ | Your Backlog space domain (e.g., `your-space.backlog.com` or `your-space.backlog.jp`). No scheme |
 | `apiKey` | | A shared API key embedded in the server config. **Omit it** to make the space per-user only: every caller then has to supply their own key (see [Per-user API keys](#per-user-api-keys)) |
 | `readOnly` | | When `true`, **all non-GET API calls are rejected**, guarding shared spaces against accidental writes and deletes |
-| `defaultSpace` | ✅ | Which space to use when the `space` parameter is omitted. Must match a `name` in `spaces` |
+| `defaultSpace` | ✅ | Which space to use when the `space` parameter is omitted. Must match a `name` in `spaces`. Optional when `spaces` is empty |
+| `allowClientSpaces` | | When `true`, clients may declare their own spaces (see [below](#letting-clients-bring-their-own-space)). Required if `spaces` is empty |
+| `allowedSpaceDomains` | | Domain suffixes a client may declare. Defaults to Backlog's own (`backlog.com`, `backlog.jp`, `backlogtool.com`) |
 
 Set this in `.dev.vars` as a single-line JSON value:
 
@@ -164,6 +166,73 @@ Note that the header does not replace signing in. `/mcp` still sits behind the
 OAuth flow, so the first connection opens a browser regardless. The two
 credentials answer different questions: OAuth decides *who may use this server*,
 the header decides *who you are to Backlog*.
+
+### Letting clients bring their own space
+
+The setup above assumes an administrator registers every space in
+`BACKLOG_SPACES_CONFIG`. For a server where each person connects their *own*
+Backlog space, set `allowClientSpaces` and let clients declare theirs:
+
+```json
+{
+  "spaces": [],
+  "allowClientSpaces": true
+}
+```
+
+Clients then send the space alongside its key:
+
+```
+X-Backlog-Spaces:   MINE=my-team.backlog.jp
+X-Backlog-Api-Keys: MINE=your-own-api-key
+```
+
+With `mcp-remote`, that is two more `--header` arguments:
+
+```json
+      "args": [
+        "mcp-remote",
+        "https://<MCP_HOSTNAME>/mcp",
+        "--header", "X-Backlog-Spaces:${BACKLOG_SPACES}",
+        "--header", "X-Backlog-Api-Keys:${BACKLOG_API_KEYS}"
+      ],
+      "env": {
+        "BACKLOG_SPACES": "MINE=my-team.backlog.jp",
+        "BACKLOG_API_KEYS": "MINE=your-own-api-key"
+      }
+```
+
+Server-configured spaces still work; declared ones are added alongside them. When
+the config lists no space, the first declared one becomes the default.
+
+#### What is enforced
+
+Letting a client name the destination host is what makes this feature risky: without
+limits, the server would issue requests to any host a client names, from wherever the
+server sits — inside a VPC, for instance. Three rules contain that.
+
+| Rule | Why |
+|---|---|
+| The domain must be a bare hostname under an allowed suffix | Stops the server being used to reach arbitrary hosts |
+| A client cannot redefine a space the server already configures | Stops a familiar name being pointed at another host |
+| Declaring a space when `allowClientSpaces` is off is an error, not a silent ignore | You learn the server rejected it instead of quietly acting as the shared user |
+
+The default suffixes are `backlog.com`, `backlog.jp` and `backlogtool.com`. Matching
+is on a label boundary, so `evilbacklog.com` and `backlog.com.attacker.io` are both
+rejected. Anything carrying a scheme, port, path, query or credentials is rejected,
+as are IP addresses. Override the list only if you must:
+
+```json
+{
+  "spaces": [],
+  "allowClientSpaces": true,
+  "allowedSpaceDomains": ["backlog.jp"]
+}
+```
+
+Note that `readOnly` does not apply to declared spaces — it is a guard for shared
+spaces the administrator configured, and a client can always re-declare its own.
+What limits a declared space is the Backlog permissions of the key you send.
 
 ### Clients that cannot send headers
 

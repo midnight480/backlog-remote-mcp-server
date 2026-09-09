@@ -9,7 +9,7 @@ English | [日本語](README_ja.md)
 
 - **Multi-space** — serve several Backlog spaces from one server
 - **Read-only guard** — mark a shared space `readOnly` to reject every write API call
-- **Per-user Backlog keys** — each caller acts as themselves in Backlog instead of one shared system user. Clients that can set headers send the key per request; the rest enter it once on the consent screen. **The server stores no Backlog credentials either way** ([details](docs/backlog.md#per-user-api-keys))
+- **Per-user Backlog keys** — each caller acts as themselves in Backlog instead of one shared system user. Clients can also bring their own space, behind a domain allowlist. Clients that can set headers send the key per request; the rest enter it once on the consent screen. **The server stores no Backlog credentials either way** ([details](docs/backlog.md#per-user-api-keys))
 - **OAuth 2.1 + PKCE** — supports Dynamic Client Registration (DCR), so MCP clients connect directly
 - **Email allowlist** — restrict who can use the server
 - **Four deployment targets** — the same business logic runs on Cloudflare, AWS, Google Cloud, or Azure
@@ -636,6 +636,7 @@ npm test             # runs all suites below
 | `npm run test:credentials` | Per-user key headers: parsing, overlay, and refusal to fall back on a typo |
 | `npm run test:user-keys` | End to end: the caller's key reaching the outgoing Backlog request |
 | `npm run test:envelope` | The sealed envelope, and that no Backlog key is ever written to the store |
+| `npm run test:client-spaces` | Client-declared spaces, and that the domain allowlist stops SSRF attempts |
 
 None of them reach external services — DynamoDB, Backlog and the upstream IdP are stubbed.
 
