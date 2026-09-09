@@ -4,7 +4,14 @@
 export interface BacklogSpace {
 	name: string;
 	domain: string;
-	apiKey: string;
+	/**
+	 * サーバ設定に埋め込まれた共有 API キー。
+	 * 省略したスペースは、利用者本人のキーが渡されたリクエストでのみ使える
+	 * (src/core/credentials.ts)。サーバに資格情報を置きたくない構成向け。
+	 */
+	apiKey?: string;
+	/** このリクエストで使うキーの出所。applyUserKeys が設定する */
+	keySource?: "server" | "user";
 	/**
 	 * true のスペースでは書き込み系 API (GET 以外) を拒否する。
 	 * 共用スペースを誤って更新・削除しないためのガード。
@@ -31,6 +38,29 @@ function assertWritable(space: BacklogSpace, method: string, path: string): void
 	}
 }
 
+/** そのスペースに使えるキーが無いときに投げるエラー */
+export class MissingCredentialError extends Error {
+	constructor(space: BacklogSpace) {
+		super(
+			`No Backlog API key available for space "${space.name}". ` +
+				`This server does not store credentials, so the key must come from your client: ` +
+				`send it as the "X-Backlog-Api-Key" header (single space) or ` +
+				`"X-Backlog-Api-Keys: ${space.name}=<your key>" (multiple spaces). ` +
+				`Use list_spaces to see which spaces already have a key.`,
+		);
+		this.name = "MissingCredentialError";
+	}
+}
+
+/**
+ * 実際に API 呼び出しへ渡すキーを取り出す。全ての呼び出し経路がここを通る。
+ * URL を自前で組み立てるツール (配列パラメータ用) からも使う。
+ */
+export function requireApiKey(space: BacklogSpace): string {
+	if (!space.apiKey) throw new MissingCredentialError(space);
+	return space.apiKey;
+}
+
 export interface BacklogSpacesConfig {
 	spaces: BacklogSpace[];
 	defaultSpace: string;
@@ -47,8 +77,8 @@ export function parseSpacesConfig(configJson: string): BacklogSpacesConfig {
 		}
 		// Validate each space
 		for (const space of config.spaces) {
-			if (!space.name || !space.domain || !space.apiKey) {
-				throw new Error(`Space configuration invalid: each space needs name, domain, and apiKey`);
+			if (!space.name || !space.domain) {
+				throw new Error(`Space configuration invalid: each space needs name and domain`);
 			}
 			// 明示的に true のときだけ書き込み禁止。未指定・不正値は書き込み可。
 			space.readOnly = space.readOnly === true;
@@ -99,7 +129,7 @@ export async function callBacklogApi(
 	const baseUrl = `https://${space.domain}/api/v2`;
 
 	const url = new URL(`${baseUrl}${path}`);
-	url.searchParams.set("apiKey", space.apiKey);
+	url.searchParams.set("apiKey", requireApiKey(space));
 
 	if (query) {
 		for (const [key, value] of Object.entries(query)) {
@@ -154,7 +184,7 @@ export async function callBacklogApiForm(
 	const baseUrl = `https://${space.domain}/api/v2`;
 
 	const url = new URL(`${baseUrl}${path}`);
-	url.searchParams.set("apiKey", space.apiKey);
+	url.searchParams.set("apiKey", requireApiKey(space));
 
 	const formBody = new URLSearchParams();
 	if (body) {
@@ -241,7 +271,7 @@ export async function callBacklogApiBinary(
 	assertWritable(space, method, path);
 
 	const url = new URL(`https://${space.domain}/api/v2${path}`);
-	url.searchParams.set("apiKey", space.apiKey);
+	url.searchParams.set("apiKey", requireApiKey(space));
 	if (query) {
 		for (const [key, value] of Object.entries(query)) {
 			if (value === undefined || value === null) continue;
@@ -308,7 +338,7 @@ export async function callBacklogApiUpload(
 	}
 
 	const url = new URL(`https://${space.domain}/api/v2${path}`);
-	url.searchParams.set("apiKey", space.apiKey);
+	url.searchParams.set("apiKey", requireApiKey(space));
 
 	const form = new FormData();
 	form.append(

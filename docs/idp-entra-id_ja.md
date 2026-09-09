@@ -1,6 +1,6 @@
 # Microsoft Entra ID を Identity Provider にする
 
-対象: Cloudflare / AWS 共通 (連携先が異なる)
+対象: 4 つのデプロイ先すべて (連携先が異なる)
 
 Microsoft アカウント (職場・学校) でログインできるようにします。
 

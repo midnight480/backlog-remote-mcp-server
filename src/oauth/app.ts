@@ -16,6 +16,14 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import express, { type Request, type Response } from "express";
 import { createMcpServer, SERVER_NAME, SERVER_VERSION } from "../core/create-server";
+import {
+	API_KEY_HEADER,
+	API_KEYS_HEADER,
+	InvalidCredentialError,
+	parseApiKeyHeaders,
+	type UserApiKeys,
+} from "../core/credentials";
+import { clearEnvelopeCookie, readEnvelopeCookie } from "../core/credential-envelope";
 import type { McpOAuthProvider } from "./provider";
 import { toWebRequest, writeWebResponse } from "./web-bridge";
 
@@ -68,7 +76,11 @@ export function createApp(config: AppConfig) {
 			return;
 		}
 		try {
-			const redirectTo = await config.provider.handleUpstreamCallback(code, state);
+			// 同意画面で預かった封筒はここで取り出し、認可コードへ載せ替える。
+			// ブラウザに残す理由はないので、成否にかかわらず捨てる。
+			const sealed = readEnvelopeCookie(req.headers.cookie);
+			res.setHeader("Set-Cookie", clearEnvelopeCookie);
+			const redirectTo = await config.provider.handleUpstreamCallback(code, state, sealed);
 			res.redirect(redirectTo);
 		} catch (e) {
 			console.error("callback failed:", e);
@@ -85,11 +97,38 @@ export function createApp(config: AppConfig) {
 		// requireBearerAuth が検証済みの情報を req.auth に載せる
 		const userEmail = (req.auth?.extra?.userEmail as string | undefined) ?? "";
 
-		const server = createMcpServer({
-			spacesConfig: config.spacesConfig,
-			allowedEmails: config.allowedEmails,
-			userEmail,
-		});
+		// 利用者本人の Backlog API キーはヘッダで運ばれてくる。
+		// このサーバは保存せず、この 1 リクエストの間だけ設定に重ねて使う。
+		let server: ReturnType<typeof createMcpServer>;
+		try {
+			// 運搬経路は2つある。ヘッダを送れるクライアントはヘッダで、
+			// 送れない GUI クライアントはトークンに封じた封筒で運ぶ。
+			// 両方あるときは、接続ごとに明示されるヘッダを優先する。
+			const fromToken = (req.auth?.extra?.userKeys as UserApiKeys | undefined) ?? {};
+			const fromHeaders = parseApiKeyHeaders(
+				req.header(API_KEY_HEADER),
+				req.header(API_KEYS_HEADER),
+			);
+			server = createMcpServer({
+				spacesConfig: config.spacesConfig,
+				allowedEmails: config.allowedEmails,
+				userEmail,
+				userKeys: [fromToken, fromHeaders],
+			});
+		} catch (e) {
+			// 設定ミスは利用者が直せるものなので、そのまま伝える。
+			// キーの値は載せない (InvalidCredentialError は位置しか報告しない)。
+			if (e instanceof InvalidCredentialError) {
+				res.status(400).json({
+					jsonrpc: "2.0",
+					error: { code: -32602, message: e.message },
+					id: null,
+				});
+				return;
+			}
+			throw e;
+		}
+
 		const transport = new WebStandardStreamableHTTPServerTransport({
 			// sessionIdGenerator: undefined でステートレスモードになる
 			sessionIdGenerator: undefined,

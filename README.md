@@ -1,7 +1,7 @@
 # Backlog Remote MCP Server
 
 A remote MCP (Model Context Protocol) server for Backlog.
-**Deployable to either Cloudflare Workers or AWS.**
+**Deployable to Cloudflare Workers, AWS, Google Cloud, or Azure.**
 
 English | [日本語](README_ja.md)
 
@@ -9,16 +9,17 @@ English | [日本語](README_ja.md)
 
 - **Multi-space** — serve several Backlog spaces from one server
 - **Read-only guard** — mark a shared space `readOnly` to reject every write API call
+- **Per-user Backlog keys** — each caller acts as themselves in Backlog instead of one shared system user. Clients that can set headers send the key per request; the rest enter it once on the consent screen. **The server stores no Backlog credentials either way** ([details](docs/backlog.md#per-user-api-keys))
 - **OAuth 2.1 + PKCE** — supports Dynamic Client Registration (DCR), so MCP clients connect directly
 - **Email allowlist** — restrict who can use the server
-- **Two runtimes** — the same business logic runs on Cloudflare or AWS
+- **Four deployment targets** — the same business logic runs on Cloudflare, AWS, Google Cloud, or Azure
 
 ## Choosing a deployment
 
 | | Cloudflare | AWS | Google Cloud | Azure |
 |---|---|---|---|---|
 | Runtime | Workers (edge) | Lambda + API Gateway | Cloud Run | Container Apps |
-| MCP session | Durable Objects | Stateless | Stateless | Stateless |
+| MCP session | Stateless | Stateless | Stateless | Stateless |
 | OAuth authorization server | `@cloudflare/workers-oauth-provider` | `src/oauth` | `src/oauth` | `src/oauth` |
 | Upstream IdP | Cloudflare Access | Amazon Cognito | Google account | Microsoft Entra ID |
 | State storage | Workers KV | DynamoDB (TTL) | Firestore (TTL) | Cosmos DB (TTL) |
@@ -86,7 +87,7 @@ per 10,000 operations, and this server caches secrets after the first read.
 | | Cloudflare | AWS | Google Cloud | Azure |
 |---|---|---|---|---|
 | Requests | Workers | Lambda + API Gateway | Cloud Run | Container Apps |
-| State storage | Durable Objects + KV | DynamoDB | Firestore | Cosmos DB (serverless) |
+| State storage | Workers KV | DynamoDB | Firestore | Cosmos DB (serverless) |
 | Logs | Workers Logs | CloudWatch Logs | Cloud Logging | Log Analytics |
 
 At the assumed volume (~3,000 requests/month) **all four stay within their free
@@ -103,10 +104,9 @@ billed **per user per month**. This is the cost that scales with headcount.
 
 **Cloudflare — Workers Free plan limits**
 
-This project uses SQLite-backed Durable Objects, which
-[are available on the Workers Free plan](https://developers.cloudflare.com/durable-objects/platform/pricing/).
-The Free plan does cap daily requests and other usage, and exceeding a cap returns errors.
-For sustained use consider Workers Paid (from $5/month).
+This project runs MCP statelessly, so it needs only Workers and KV — both available
+on the Workers Free plan. The Free plan does cap daily requests and other usage, and
+exceeding a cap returns errors. For sustained use consider Workers Paid (from $5/month).
 
 **AWS — the Lambda free tier is perpetual**
 
@@ -167,7 +167,7 @@ Additional tools depend on the deployment target:
 
 ### Order to follow
 
-1. **[Backlog API keys and space configuration](docs/backlog.md)** — shared by both platforms
+1. **[Backlog API keys and space configuration](docs/backlog.md)** — shared by every platform
 2. Pick an identity provider
    - **[Google Cloud](docs/idp-google.md)**
    - **[Microsoft Entra ID](docs/idp-entra-id.md)**
@@ -185,8 +185,8 @@ Troubleshooting sections live at the end of each deployment guide.
 
 ## Architecture
 
-The same MCP server runs on two platforms. Each platform subgraph holds its own
-wiring — gateway, storage and upstream IdP — and both funnel into the shared
+The same MCP server runs on four platforms. Each platform subgraph holds its own
+wiring — gateway, storage and upstream IdP — and they all funnel into the shared
 `src/core`, which is where the tools and the Backlog client live.
 
 ```mermaid
@@ -202,10 +202,8 @@ flowchart TB
         CFW["Workers &nbsp;&nbsp; <i>OAuthProvider</i>"]
         CFA["Cloudflare Access<br/><i>or Google / Entra ID</i>"]
         CFKV["KV &nbsp;&nbsp; <i>OAUTH_KV</i>"]
-        CFDO["Durable Object<br/><i>BacklogMCP session</i>"]
         CFW -. "OIDC" .-> CFA
         CFW --- CFKV
-        CFW --> CFDO
     end
 
     subgraph aws["AWS &nbsp;&nbsp; src/platforms/aws"]
@@ -321,6 +319,8 @@ src/
     backlog-client.ts      Backlog API client (including the readOnly guard)
     tools/                 158 MCP tools (full public API coverage)
     create-server.ts       MCP server assembly and authorization
+    credentials.ts         Per-user Backlog keys: parsing and overlay
+    credential-envelope.ts Sealing those keys into tokens, so none are stored
   oauth/                   Node runtimes. OAuth authorization server (Express)
     provider.ts            OAuthServerProvider implementation
     store.ts               AuthStore interface — the persistence port
@@ -353,6 +353,13 @@ implementing `AuthStore` for that platform's database, a secret lookup, and an e
 point that hands the Express app to the runtime. The authorization server, the tools
 and the Backlog client are all reused unchanged.
 ## Connecting from MCP Clients
+
+Connecting authenticates you to *this server*. Acting on Backlog as yourself needs
+your own Backlog API key as well, and how you supply it depends on the client:
+those that can set HTTP headers send it per request, the rest type it once into the
+consent screen. Either way the server keeps no copy. See
+[Per-user API keys](docs/backlog.md#per-user-api-keys) for the header names and
+per-client configuration.
 
 ### Claude Desktop / Kiro / Cursor (via mcp-remote proxy)
 
@@ -511,8 +518,7 @@ npm run dev
 # Server starts at http://localhost:8788/mcp
 ```
 
-`wrangler dev` emulates KV and Durable Objects locally, so it never touches real
-Cloudflare resources.
+`wrangler dev` emulates KV locally, so it never touches real Cloudflare resources.
 
 ### Verifying the setup
 
@@ -555,7 +561,7 @@ Types are split per platform, so misusing a Workers global in AWS code (or vice 
 is a type error.
 
 ```bash
-npm run type-check   # both tsconfig.cloudflare.json and tsconfig.aws.json
+npm run type-check   # one pass per platform tsconfig (cloudflare / aws / gcp / azure)
 npm test             # runs all suites below
 ```
 
@@ -563,9 +569,13 @@ npm test             # runs all suites below
 |---|---|
 | `npm run test:oauth` | OAuth authorization server logic (DCR, PKCE, single-use tokens, scopes, revocation) |
 | `npm run test:oauth-consent` | Consent screen (HTML escaping, signed cookies, CSRF, approval gate) |
+| `npm run test:oauth-upstream` | Upstream OIDC client (PKCE pair, token exchange, ID token verification) |
 | `npm run test:aws-store` | DynamoDB store client-registration TTL and renewal |
+| `npm run test:credentials` | Per-user key headers: parsing, overlay, and refusal to fall back on a typo |
+| `npm run test:user-keys` | End to end: the caller's key reaching the outgoing Backlog request |
+| `npm run test:envelope` | The sealed envelope, and that no Backlog key is ever written to the store |
 
-None of them reach external services — DynamoDB and the upstream IdP are stubbed.
+None of them reach external services — DynamoDB, Backlog and the upstream IdP are stubbed.
 
 ### Configuration files
 

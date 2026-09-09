@@ -15,6 +15,7 @@ import { createUpstreamClient } from "../../oauth/upstream";
 import { SERVER_NAME } from "../../core/create-server";
 import { FirestoreAuthStore } from "./store";
 import { getSecret } from "./secrets";
+import { spacesNeedingUserKey } from "../../core/credentials";
 
 function required(name: string): string {
 	const v = process.env[name];
@@ -39,6 +40,12 @@ async function main(): Promise<void> {
 		allowedEmails: process.env.ALLOWED_EMAILS,
 		cookieSecret,
 		serverName: SERVER_NAME,
+		// 共有キーを持たないスペースだけ、同意画面で本人のキーを受け取る。
+		// 受け取った値は保存せず、トークンに封じてクライアントへ返す。
+		credentialSpaces: spacesNeedingUserKey(spacesConfig),
+		// Cookie 署名鍵を流用する。用途は HKDF の info で分離している
+		// (src/oauth/credential-envelope.ts)。
+		envelopeSecret: cookieSecret,
 		upstream: createUpstreamClient({
 			clientId: required("UPSTREAM_CLIENT_ID"),
 			clientSecret: upstreamClientSecret,

@@ -1,7 +1,7 @@
 # Backlog Remote MCP Server
 
 Backlog を MCP (Model Context Protocol) 経由で操作するリモートサーバです。
-**Cloudflare Workers と AWS のどちらにもデプロイできます。**
+**Cloudflare Workers / AWS / Google Cloud / Azure のいずれにもデプロイできます。**
 
 [English](README.md) | 日本語
 
@@ -9,16 +9,17 @@ Backlog を MCP (Model Context Protocol) 経由で操作するリモートサー
 
 - **マルチスペース対応** — 複数の Backlog スペースを 1 つのサーバから扱えます
 - **読み取り専用ガード** — 共用スペースを `readOnly` にすると書き込み系 API を拒否します
+- **利用者ごとの Backlog キー** — 共有のシステムユーザーではなく、操作した本人として Backlog に記録されます。ヘッダを設定できるクライアントはリクエストごとに、できないクライアントは同意画面で一度だけキーを渡します。**どちらの経路でもサーバは Backlog の資格情報を保存しません** ([詳細](docs/backlog_ja.md#利用者ごとのapiキー))
 - **OAuth 2.1 + PKCE** — 動的クライアント登録 (DCR) に対応し、MCP クライアントから直接接続できます
 - **メールアドレスによる認可** — 許可リストで利用者を限定します
-- **2 つの実行環境** — ビジネスロジックを共有したまま Cloudflare / AWS のどちらでも動きます
+- **4 つのデプロイ先** — ビジネスロジックを共有したまま Cloudflare / AWS / Google Cloud / Azure のいずれでも動きます
 
 ## デプロイ先を選ぶ
 
 | | Cloudflare | AWS | Google Cloud | Azure |
 |---|---|---|---|---|
 | 実行環境 | Workers (エッジ) | Lambda + API Gateway | Cloud Run | Container Apps |
-| MCP セッション | Durable Objects | ステートレス | ステートレス | ステートレス |
+| MCP セッション | ステートレス | ステートレス | ステートレス | ステートレス |
 | OAuth 認可サーバ | `@cloudflare/workers-oauth-provider` | `src/oauth` | `src/oauth` | `src/oauth` |
 | 上流 IdP | Cloudflare Access | Amazon Cognito | Google アカウント | Microsoft Entra ID |
 | 状態保存 | Workers KV | DynamoDB (TTL) | Firestore (TTL) | Cosmos DB (TTL) |
@@ -86,7 +87,7 @@ Google と Microsoft Entra ID の両方を選べます。表にあるのは既�
 | | Cloudflare | AWS | Google Cloud | Azure |
 |---|---|---|---|---|
 | リクエスト | Workers | Lambda + API Gateway | Cloud Run | Container Apps |
-| 状態保存 | Durable Objects + KV | DynamoDB | Firestore | Cosmos DB (サーバーレス) |
+| 状態保存 | Workers KV | DynamoDB | Firestore | Cosmos DB (サーバーレス) |
 | ログ | Workers Logs | CloudWatch Logs | Cloud Logging | Log Analytics |
 
 上記の想定 (月 3,000 リクエスト) であれば、**4 つとも各サービスの無料枠に収まる**
@@ -103,9 +104,9 @@ Zero Trust (Access) は **50 ユーザーまで無料**です。51 名以上に�
 
 **Cloudflare — Workers Free プランの上限**
 
-本プロジェクトは SQLite バックエンドの Durable Objects を使っており、
-[Workers Free プランでも利用できます](https://developers.cloudflare.com/durable-objects/platform/pricing/)。
-ただし Free プランは 1 日あたりのリクエスト数などに上限があり、超えるとエラーになります。
+本プロジェクトは MCP をステートレスで動かすため、必要なのは Workers と KV だけで、
+どちらも Workers Free プランで利用できます。ただし Free プランは 1 日あたりの
+リクエスト数などに上限があり、超えるとエラーになります。
 継続的に使うなら Workers Paid ($5/月〜) を検討してください。
 
 **AWS — Lambda の無料枠は恒久的**
@@ -166,7 +167,7 @@ npm install
 
 ### 進める順番
 
-1. **[Backlog の API キーとスペース設定](docs/backlog_ja.md)** — 両プラットフォーム共通
+1. **[Backlog の API キーとスペース設定](docs/backlog_ja.md)** — 全プラットフォーム共通
 2. Identity Provider を選ぶ
    - **[Google Cloud](docs/idp-google_ja.md)**
    - **[Microsoft Entra ID](docs/idp-entra-id_ja.md)**
@@ -184,8 +185,8 @@ npm install
 
 ## アーキテクチャ
 
-同じ MCP サーバを 2 つのプラットフォームで動かします。プラットフォームごとの配線
-(入口・ストレージ・上流 IdP) はそれぞれの枠内で完結し、どちらも共通部分の
+同じ MCP サーバを 4 つのプラットフォームで動かします。プラットフォームごとの配線
+(入口・ストレージ・上流 IdP) はそれぞれの枠内で完結し、いずれも共通部分の
 `src/core` に合流します。ツール実装と Backlog クライアントはそこにあります。
 
 ```mermaid
@@ -201,10 +202,8 @@ flowchart TB
         CFW["Workers &nbsp;&nbsp; <i>OAuthProvider</i>"]
         CFA["Cloudflare Access<br/><i>または Google / Entra ID</i>"]
         CFKV["KV &nbsp;&nbsp; <i>OAUTH_KV</i>"]
-        CFDO["Durable Object<br/><i>BacklogMCP セッション</i>"]
         CFW -. "OIDC" .-> CFA
         CFW --- CFKV
-        CFW --> CFDO
     end
 
     subgraph aws["AWS &nbsp;&nbsp; src/platforms/aws"]
@@ -319,6 +318,8 @@ src/
     backlog-client.ts      Backlog API クライアント (readOnly ガードもここ)
     tools/                 MCP ツール 158 個 (公開 API を網羅)
     create-server.ts       MCP サーバの組み立てと認可判定
+    credentials.ts         利用者ごとの Backlog キーの解析と重ね合わせ
+    credential-envelope.ts キーをトークンに封じる処理 (保存しないための仕組み)
   oauth/                   Node 系の実行環境で共通。OAuth 認可サーバ (Express)
     provider.ts            OAuthServerProvider の実装
     store.ts               AuthStore インターフェース (永続化の差し替え点)
@@ -351,6 +352,13 @@ infra/
 Express アプリを実行環境に渡すエントリポイントを書けば済みます。認可サーバ・ツール・
 Backlog クライアントはそのまま再利用されます。
 ## MCPクライアントからの接続
+
+接続で認証されるのは *このサーバ* に対してです。Backlog を本人として操作するには
+本人の Backlog API キーも必要で、渡し方はクライアントによって変わります。HTTP
+ヘッダを設定できるクライアントはリクエストごとに送り、できないクライアントは
+同意画面で一度だけ入力します。どちらの経路でもサーバは控えを持ちません。ヘッダ名と
+クライアント別の設定例は
+[利用者ごとの API キー](docs/backlog_ja.md#利用者ごとのapiキー) を参照してください。
 
 ### Claude Desktop / Kiro / Cursor (mcp-remoteプロキシ経由)
 
@@ -507,7 +515,7 @@ npm run dev
 # http://localhost:8788/mcp で起動
 ```
 
-`wrangler dev` は KV と Durable Object をローカルでエミュレートするため、実際の
+`wrangler dev` は KV をローカルでエミュレートするため、実際の
 Cloudflare リソースには触れません。
 
 ### 疎通確認
@@ -551,7 +559,7 @@ npm run dev:https
 誤用するとエラーになります (逆も同様)。
 
 ```bash
-npm run type-check   # tsconfig.cloudflare.json と tsconfig.aws.json の両方
+npm run type-check   # プラットフォームごとの tsconfig を順に (cloudflare / aws / gcp / azure)
 npm test             # 下記のテストをまとめて実行
 ```
 
@@ -559,9 +567,13 @@ npm test             # 下記のテストをまとめて実行
 |---|---|
 | `npm run test:oauth` | OAuth 認可サーバのロジック (DCR、PKCE、トークンの使い捨て、スコープ、失効) |
 | `npm run test:oauth-consent` | 同意画面 (HTML エスケープ、署名 Cookie、CSRF、承認ゲート) |
+| `npm run test:oauth-upstream` | 上流 OIDC クライアント (PKCE ペア、トークン交換、ID トークン検証) |
 | `npm run test:aws-store` | DynamoDB ストアのクライアント登録 TTL と延長 |
+| `npm run test:credentials` | 利用者ごとのキーのヘッダ解析・重ね合わせ・綴り違いを黙って通さないこと |
+| `npm run test:user-keys` | 本人のキーが Backlog への発信リクエストに乗るまでの通し確認 |
+| `npm run test:envelope` | 封筒の暗号化と、Backlog のキーが保存先に一度も書かれないこと |
 
-いずれも外部サービスに接続せず、DynamoDB と上流 IdP はスタブに差し替えて動きます。
+いずれも外部サービスに接続せず、DynamoDB・Backlog・上流 IdP はスタブに差し替えて動きます。
 
 ### 設定ファイル
 

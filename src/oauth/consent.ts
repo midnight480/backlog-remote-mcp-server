@@ -146,7 +146,16 @@ export interface ApprovalDialogOptions {
 	params: Record<string, string>;
 	csrfToken: string;
 	actionPath: string;
+	/**
+	 * 本人の Backlog API キーを入力してもらうスペース名。
+	 * ヘッダを送れない GUI クライアント向けの経路 (credential-envelope.ts)。
+	 * 空または未指定なら入力欄を出さない。
+	 */
+	credentialSpaces?: string[];
 }
+
+/** 入力欄の name。POST /authorize 側と綴りを共有する */
+export const CREDENTIAL_FIELD_PREFIX = "backlog_api_key_";
 
 export function renderApprovalDialog(res: Response, opts: ApprovalDialogOptions): void {
 	const serverName = escapeHtml(opts.serverName);
@@ -159,6 +168,27 @@ export function renderApprovalDialog(res: Response, opts: ApprovalDialogOptions)
 				`<input type="hidden" name="${escapeHtml(k)}" value="${escapeHtml(v)}">`,
 		)
 		.join("\n");
+
+	// キーはこのサーバに保存されない。入力欄を出すのは、ヘッダを設定できない
+	// クライアントでも本人のキーを渡せるようにするため。
+	const spaces = opts.credentialSpaces ?? [];
+	const credentialFields = spaces.length === 0 ? "" : `<div class="keys">
+<h3>Your Backlog API keys</h3>
+<p>This server does not store your keys. They are sealed into the token your client
+receives, and are unreadable by anyone without this server's key. Leave a field blank
+if you do not use that space. Issue a key from Backlog Personal Settings &rarr; API.</p>
+${spaces
+			.map(
+				(name) => `<div class="field">
+<label for="key-${escapeHtml(name)}">${escapeHtml(name)}</label>
+<input type="password" autocomplete="off" spellcheck="false"
+ id="key-${escapeHtml(name)}"
+ name="${CREDENTIAL_FIELD_PREFIX}${escapeHtml(name)}"
+ placeholder="API key for ${escapeHtml(name)}">
+</div>`,
+			)
+			.join("\n")}
+</div>`;
 
 	res.status(200).type("html").send(`<!DOCTYPE html>
 <html lang="en">
@@ -179,6 +209,12 @@ dd:last-child { margin-bottom: 0; }
 .btn { padding: 0.75rem 1.5rem; border-radius: 6px; font-weight: 500; cursor: pointer; border: none; font-size: 1rem; }
 .btn-primary { background: #0070f3; color: #fff; }
 .btn-secondary { background: transparent; border: 1px solid #e5e7eb; }
+.keys { margin-top: 1.5rem; border-top: 1px solid #e5e7eb; padding-top: 1.25rem; }
+.keys h3 { font-size: 1rem; margin: 0 0 .5rem; }
+.keys p { font-size: .85rem; color: #6b7280; margin: 0 0 1rem; }
+.field { margin-bottom: .9rem; }
+.field label { display: block; font-size: .85rem; margin-bottom: .3rem; }
+.field input { width: 100%; box-sizing: border-box; padding: .6rem; border: 1px solid #d1d5db; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9rem; }
 </style>
 </head>
 <body>
@@ -193,6 +229,7 @@ dd:last-child { margin-bottom: 0; }
 <form method="post" action="${escapeHtml(opts.actionPath)}">
 ${hidden}
 <input type="hidden" name="csrf_token" value="${escapeHtml(opts.csrfToken)}">
+${credentialFields}
 <div class="actions">
 <button type="button" class="btn btn-secondary" onclick="window.history.back()">Cancel</button>
 <button type="submit" class="btn btn-primary">Approve</button>

@@ -4,7 +4,17 @@
 import { Buffer } from "node:buffer";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import {
+	collectCredentialFields,
+	envelopeCookie,
+	readEnvelopeCookie,
+	sealCredentials,
+	clearEnvelopeCookie,
+	attach,
+} from "../../core/credential-envelope";
+import { spacesNeedingUserKey } from "../../core/credentials";
+import {
 	addApprovedClient,
+	CREDENTIAL_FIELD_PREFIX,
 	createOAuthState,
 	fetchUpstreamAuthToken,
 	generateCSRFProtection,
@@ -18,6 +28,18 @@ import {
 } from "./workers-oauth-utils";
 
 type EnvWithOauth = Env & { OAUTH_PROVIDER: OAuthHelpers };
+
+/**
+ * 同意画面で本人のキーを受け取るスペース名。共有キーを持たないものだけ。
+ * 設定が壊れている場合は入力欄を出さない (別の経路でエラーになる)。
+ */
+function getCredentialSpaces(env: Env): string[] {
+	try {
+		return spacesNeedingUserKey(env.BACKLOG_SPACES_CONFIG);
+	} catch {
+		return [];
+	}
+}
 
 function getAllowedEmails(env: Env): Set<string> {
 	try {
@@ -42,7 +64,13 @@ export async function handleAccessRequest(
 			return new Response("Invalid request", { status: 400 });
 		}
 
-		if (await isClientApproved(request, clientId, env.COOKIE_ENCRYPTION_KEY)) {
+		const credentialSpaces = getCredentialSpaces(env);
+		// キーを入力してもらう構成では、承認済みでも同意画面を飛ばせない。
+		// キーはサーバに残らないため、認可のたびに本人から受け取る必要がある。
+		if (
+			credentialSpaces.length === 0 &&
+			(await isClientApproved(request, clientId, env.COOKIE_ENCRYPTION_KEY))
+		) {
 			const { stateToken, codeChallenge } = await createOAuthState(
 				oauthReqInfo,
 				env.OAUTH_KV,
@@ -63,6 +91,7 @@ export async function handleAccessRequest(
 			},
 			setCookie,
 			state: { oauthReqInfo },
+			credentialSpaces,
 		});
 	}
 
@@ -102,6 +131,23 @@ export async function handleAccessRequest(
 			const redirectHeaders = new Headers();
 			redirectHeaders.append("Set-Cookie", approvedClientCookie);
 			redirectHeaders.append("Set-Cookie", csrfResult.clearCookie);
+
+			// 入力されたキーを封じ、ブラウザに預けて上流 IdP を往復させる。
+			// サーバ側にも workers-oauth-provider にも渡さない。
+			const entered = collectCredentialFields(
+				(field) => {
+					const value = formData.get(field);
+					return typeof value === "string" ? value : undefined;
+				},
+				getCredentialSpaces(env),
+				CREDENTIAL_FIELD_PREFIX,
+			);
+			if (Object.keys(entered).length > 0) {
+				redirectHeaders.append(
+					"Set-Cookie",
+					envelopeCookie(await sealCredentials(entered, env.COOKIE_ENCRYPTION_KEY)),
+				);
+			}
 
 			return redirectToAccess(request, env, stateToken, codeChallenge, redirectHeaders);
 		} catch (error: any) {
@@ -165,6 +211,10 @@ export async function handleAccessRequest(
 			sub: idTokenClaims.sub as string,
 		};
 
+		// 同意画面で預かった封筒はここで取り出し、認可コードへ載せ替える。
+		// completeAuthorization には渡さない (渡すと KV に保存されてしまう)。
+		const sealed = readEnvelopeCookie(request.headers.get("cookie"));
+
 		const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
 			metadata: { label: user.name },
 			props: {
@@ -178,7 +228,17 @@ export async function handleAccessRequest(
 			userId: user.sub,
 		});
 
-		return Response.redirect(redirectTo, 302);
+		// 保存されたのは OAuth の認可情報だけ。封筒はコード文字列に載せて
+		// クライアントへ渡す。ブラウザに残す理由はないので捨てる。
+		const target = new URL(redirectTo);
+		const issuedCode = target.searchParams.get("code");
+		if (sealed && issuedCode) {
+			target.searchParams.set("code", attach(issuedCode, sealed));
+		}
+		return new Response(null, {
+			status: 302,
+			headers: { location: target.toString(), "Set-Cookie": clearEnvelopeCookie },
+		});
 	}
 
 	return new Response("Not Found", { status: 404 });

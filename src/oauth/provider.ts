@@ -31,11 +31,21 @@ import {
 	approvalKey,
 	approvedClientsCookie,
 	clearCsrfCookie,
+	CREDENTIAL_FIELD_PREFIX,
 	isClientApproved,
 	issueCsrfToken,
 	renderApprovalDialog,
 	validateCsrfToken,
 } from "./consent";
+import {
+	attach,
+	collectCredentialFields,
+	detach,
+	envelopeCookie,
+	openCredentials,
+	sealCredentials,
+} from "../core/credential-envelope";
+import type { UserApiKeys } from "../core/credentials";
 import type { AuthStore } from "./store";
 import { createPkcePair, type UpstreamClient } from "./upstream";
 
@@ -64,6 +74,16 @@ export interface ProviderConfig {
 	cookieSecret: string;
 	/** 同意画面に表示するサーバ名 */
 	serverName: string;
+	/**
+	 * 本人の Backlog API キーを同意画面で受け取るスペース名。
+	 * ヘッダを送れない GUI クライアント向けの経路。空なら入力欄を出さない。
+	 */
+	credentialSpaces?: string[];
+	/**
+	 * 封筒の暗号化に使う鍵。キーはこの鍵でしか開けない形でトークンに載る。
+	 * 未設定なら封筒の経路自体を無効にする。
+	 */
+	envelopeSecret?: string;
 }
 
 class RegisteredClientsStore implements OAuthRegisteredClientsStore {
@@ -110,8 +130,12 @@ export class McpOAuthProvider implements OAuthServerProvider {
 		const req = res.req;
 		const key = approvalKey(client.client_id, params.redirectUri);
 		const extraHeaders: string[] = [];
+		const credentialSpaces = this.envelopeEnabled() ? (this.config.credentialSpaces ?? []) : [];
 
-		if (!isClientApproved(req, key, this.config.cookieSecret)) {
+		// キーを入力してもらう構成では、承認済みでも同意画面を飛ばせない。
+		// キーはサーバに残らないため、認可のたびに本人から受け取る必要がある。
+		const mustAskForKeys = credentialSpaces.length > 0;
+		if (mustAskForKeys || !isClientApproved(req, key, this.config.cookieSecret)) {
 			if (req.method === "POST") {
 				// 同意画面からの POST。CSRF を検証して承認を記録する。
 				if (!validateCsrfToken(req)) {
@@ -125,6 +149,24 @@ export class McpOAuthProvider implements OAuthServerProvider {
 					approvedClientsCookie(req, key, this.config.cookieSecret),
 					clearCsrfCookie,
 				);
+				// 入力されたキーを封じ、ブラウザに預けて上流 IdP を往復させる。
+				// サーバ側には保存しない。
+				const entered = collectCredentialFields(
+					(field) => {
+						const body = req.body as Record<string, unknown> | undefined;
+						const value = body?.[field];
+						return typeof value === "string" ? value : undefined;
+					},
+					credentialSpaces,
+					CREDENTIAL_FIELD_PREFIX,
+				);
+				if (Object.keys(entered).length > 0) {
+					extraHeaders.push(
+						envelopeCookie(
+							await sealCredentials(entered, this.config.envelopeSecret as string),
+						),
+					);
+				}
 			} else {
 				// 未承認の GET。同意画面を出して終わる (上流へは進まない)。
 				const { token, setCookie } = issueCsrfToken();
@@ -144,6 +186,7 @@ export class McpOAuthProvider implements OAuthServerProvider {
 					),
 					csrfToken: token,
 					actionPath: req.originalUrl.split("?")[0],
+					credentialSpaces,
 				});
 				return;
 			}
@@ -174,7 +217,7 @@ export class McpOAuthProvider implements OAuthServerProvider {
 	 * 手順3: 上流 IdP からのコールバック。
 	 * 戻り値は MCP クライアントへリダイレクトすべき URL。
 	 */
-	async handleUpstreamCallback(code: string, state: string): Promise<string> {
+	async handleUpstreamCallback(code: string, state: string, sealed?: string): Promise<string> {
 		const pending = await this.config.store.takeUpstreamState(state);
 		if (!pending) {
 			throw new Error("Unknown or expired state");
@@ -209,8 +252,9 @@ export class McpOAuthProvider implements OAuthServerProvider {
 			expiresAt: now() + AUTH_CODE_TTL_SEC,
 		});
 
+		// 保存したのは識別子だけ。封筒はコード文字列に載せてクライアントへ渡す。
 		const redirect = new URL(pending.redirectUri);
-		redirect.searchParams.set("code", authCode);
+		redirect.searchParams.set("code", attach(authCode, this.envelopeEnabled() ? sealed : undefined));
 		if (pending.mcpState) redirect.searchParams.set("state", pending.mcpState);
 		return redirect.toString();
 	}
@@ -220,7 +264,7 @@ export class McpOAuthProvider implements OAuthServerProvider {
 		client: OAuthClientInformationFull,
 		authorizationCode: string,
 	): Promise<string> {
-		const rec = await this.config.store.peekAuthCode(authorizationCode);
+		const rec = await this.config.store.peekAuthCode(detach(authorizationCode).id);
 		if (!rec || rec.clientId !== client.client_id) {
 			throw new Error("Invalid authorization code");
 		}
@@ -234,7 +278,8 @@ export class McpOAuthProvider implements OAuthServerProvider {
 		codeVerifier?: string,
 		redirectUri?: string,
 	): Promise<OAuthTokens> {
-		const rec = await this.config.store.takeAuthCode(authorizationCode);
+		const { id, sealed } = detach(authorizationCode);
+		const rec = await this.config.store.takeAuthCode(id);
 		if (!rec || rec.clientId !== client.client_id) {
 			throw new Error("Invalid authorization code");
 		}
@@ -249,7 +294,7 @@ export class McpOAuthProvider implements OAuthServerProvider {
 				throw new Error("code_verifier does not match code_challenge");
 			}
 		}
-		return this.issueTokens(rec.clientId, rec.scopes, rec.userEmail, rec.userId, rec.resource);
+		return this.issueTokens(rec.clientId, rec.scopes, rec.userEmail, rec.userId, rec.resource, sealed);
 	}
 
 	async exchangeRefreshToken(
@@ -257,12 +302,13 @@ export class McpOAuthProvider implements OAuthServerProvider {
 		refreshToken: string,
 		scopes?: string[],
 	): Promise<OAuthTokens> {
-		const rec = await this.config.store.getToken(refreshToken);
+		const { id, sealed } = detach(refreshToken);
+		const rec = await this.config.store.getToken(id);
 		if (!rec || rec.kind !== "refresh" || rec.clientId !== client.client_id) {
 			throw new Error("Invalid refresh token");
 		}
 		// リフレッシュトークンは使い捨てにする (ローテーション)
-		await this.config.store.deleteToken(refreshToken);
+		await this.config.store.deleteToken(id);
 
 		// スコープの拡大は認めない
 		const requested = scopes ?? rec.scopes;
@@ -270,20 +316,28 @@ export class McpOAuthProvider implements OAuthServerProvider {
 		if (widened.length > 0) {
 			throw new Error(`Cannot widen scope: ${widened.join(", ")}`);
 		}
-		return this.issueTokens(rec.clientId, requested, rec.userEmail, rec.userId, rec.resource);
+		// 封筒は新しいトークンへ引き継ぐ。ここで落とすと、GUI クライアントは
+		// リフレッシュのたびにキーを再入力する羽目になる。
+		return this.issueTokens(rec.clientId, requested, rec.userEmail, rec.userId, rec.resource, sealed);
 	}
 
 	async verifyAccessToken(token: string): Promise<AuthInfo> {
-		const rec = await this.config.store.getToken(token);
+		const { id, sealed } = detach(token);
+		const rec = await this.config.store.getToken(id);
 		if (!rec || rec.kind !== "access") {
 			throw new Error("Invalid or expired access token");
 		}
+		// 封筒はこのリクエストの間だけ開く。開いた中身は保存しない。
+		const userKeys =
+			sealed && this.envelopeEnabled()
+				? await openCredentials(sealed, this.config.envelopeSecret as string)
+				: undefined;
 		return {
 			token,
 			clientId: rec.clientId,
 			scopes: rec.scopes,
 			expiresAt: rec.expiresAt,
-			extra: { userEmail: rec.userEmail, userId: rec.userId },
+			extra: { userEmail: rec.userEmail, userId: rec.userId, userKeys },
 		};
 	}
 
@@ -291,11 +345,17 @@ export class McpOAuthProvider implements OAuthServerProvider {
 		client: OAuthClientInformationFull,
 		request: OAuthTokenRevocationRequest,
 	): Promise<void> {
-		const rec = await this.config.store.getToken(request.token);
+		const id = detach(request.token).id;
+		const rec = await this.config.store.getToken(id);
 		// 他クライアントのトークンは失効させない
 		if (rec && rec.clientId === client.client_id) {
-			await this.config.store.deleteToken(request.token);
+			await this.config.store.deleteToken(id);
 		}
+	}
+
+	/** 封筒の経路が使える構成か */
+	private envelopeEnabled(): boolean {
+		return Boolean(this.config.envelopeSecret);
 	}
 
 	private async issueTokens(
@@ -304,11 +364,13 @@ export class McpOAuthProvider implements OAuthServerProvider {
 		userEmail: string,
 		userId: string,
 		resource?: string,
+		sealed?: string,
 	): Promise<OAuthTokens> {
 		const accessToken = randomToken();
 		const refreshToken = randomToken();
 		const issuedAt = now();
 
+		// 保存するのは識別子のみ。封筒はクライアントが持つトークン文字列にだけ載る。
 		await this.config.store.putToken({
 			token: accessToken,
 			kind: "access",
@@ -330,11 +392,12 @@ export class McpOAuthProvider implements OAuthServerProvider {
 			expiresAt: issuedAt + REFRESH_TOKEN_TTL_SEC,
 		});
 
+		const carry = this.envelopeEnabled() ? sealed : undefined;
 		return {
-			access_token: accessToken,
+			access_token: attach(accessToken, carry),
 			token_type: "bearer",
 			expires_in: ACCESS_TOKEN_TTL_SEC,
-			refresh_token: refreshToken,
+			refresh_token: attach(refreshToken, carry),
 			scope: scopes.join(" "),
 		};
 	}

@@ -7,6 +7,7 @@ import {
 	type BacklogSpacesConfig,
 	callBacklogApi,
 	callBacklogApiForm,
+	requireApiKey,
 	resolveSpace,
 } from "../backlog-client";
 
@@ -59,7 +60,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 			// Array params need special handling via URL
 			const url = new URL(`https://${spaceConfig.domain}/api/v2/issues`);
-			url.searchParams.set("apiKey", spaceConfig.apiKey);
+			url.searchParams.set("apiKey", requireApiKey(spaceConfig));
 			for (const [k, v] of Object.entries(query)) {
 				if (v !== undefined) url.searchParams.set(k, String(v));
 			}
@@ -93,7 +94,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 		async ({ space: spaceName, projectId, statusId, keyword }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			const url = new URL(`https://${spaceConfig.domain}/api/v2/issues/count`);
-			url.searchParams.set("apiKey", spaceConfig.apiKey);
+			url.searchParams.set("apiKey", requireApiKey(spaceConfig));
 			if (keyword) url.searchParams.set("keyword", keyword);
 			if (projectId) projectId.forEach((id) => url.searchParams.append("projectId[]", String(id)));
 			if (statusId) statusId.forEach((id) => url.searchParams.append("statusId[]", String(id)));
