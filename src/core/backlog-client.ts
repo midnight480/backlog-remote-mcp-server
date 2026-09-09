@@ -63,17 +63,44 @@ export function requireApiKey(space: BacklogSpace): string {
 
 export interface BacklogSpacesConfig {
 	spaces: BacklogSpace[];
+	/**
+	 * `space` を省略したときに使うスペース名。
+	 * クライアントがスペースを宣言する構成では、設定側が空のこともある
+	 * (その場合は最初に宣言されたスペースが既定になる)。
+	 */
 	defaultSpace: string;
+	/**
+	 * true のとき、クライアントが自分のスペース (名前とドメイン) を宣言できる。
+	 * 利用者が自分の Backlog スペースを持ち込む構成向け。
+	 * 宣言されたドメインは allowedSpaceDomains で必ず絞り込む。
+	 */
+	allowClientSpaces?: boolean;
+	/**
+	 * クライアントが宣言できるドメインのサフィックス許可リスト。
+	 * 未指定なら Backlog の既定サフィックスを使う。
+	 * ここを緩めるとサーバが任意ホストへの踏み台になりうるので、
+	 * 常に必要最小限にすること。
+	 */
+	allowedSpaceDomains?: string[];
 }
 
 export function parseSpacesConfig(configJson: string): BacklogSpacesConfig {
 	try {
 		const config = JSON.parse(configJson) as BacklogSpacesConfig;
-		if (!config.spaces || !Array.isArray(config.spaces) || config.spaces.length === 0) {
-			throw new Error("BACKLOG_SPACES_CONFIG must have at least one space");
+		if (!config.spaces || !Array.isArray(config.spaces)) {
+			throw new Error("BACKLOG_SPACES_CONFIG must have a spaces array");
+		}
+		config.allowClientSpaces = config.allowClientSpaces === true;
+		// クライアントがスペースを宣言する構成でのみ、設定側を空にできる
+		if (config.spaces.length === 0 && !config.allowClientSpaces) {
+			throw new Error(
+				"BACKLOG_SPACES_CONFIG must have at least one space, " +
+					"or set allowClientSpaces to true so clients can declare their own",
+			);
 		}
 		if (!config.defaultSpace) {
-			config.defaultSpace = config.spaces[0].name;
+			// 空の設定では既定を決められない。宣言されたスペースから後で埋める。
+			config.defaultSpace = config.spaces[0]?.name ?? "";
 		}
 		// Validate each space
 		for (const space of config.spaces) {
@@ -94,6 +121,13 @@ export function parseSpacesConfig(configJson: string): BacklogSpacesConfig {
 
 export function resolveSpace(config: BacklogSpacesConfig, spaceName?: string): BacklogSpace {
 	const targetName = spaceName || config.defaultSpace;
+	if (!targetName) {
+		throw new Error(
+			"No Backlog space is available. This server has none configured, so your client " +
+				'must declare one with the "X-Backlog-Spaces" header (NAME=domain pairs) ' +
+				'alongside its key in "X-Backlog-Api-Keys".',
+		);
+	}
 	const space = config.spaces.find(
 		(s) => s.name.toLowerCase() === targetName.toLowerCase(),
 	);

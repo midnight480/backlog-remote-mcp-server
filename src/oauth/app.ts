@@ -19,8 +19,10 @@ import { createMcpServer, SERVER_NAME, SERVER_VERSION } from "../core/create-ser
 import {
 	API_KEY_HEADER,
 	API_KEYS_HEADER,
+	CLIENT_SPACES_HEADER,
 	InvalidCredentialError,
 	parseApiKeyHeaders,
+	parseClientSpaces,
 	type UserApiKeys,
 } from "../core/credentials";
 import { clearEnvelopeCookie, readEnvelopeCookie } from "../core/credential-envelope";
@@ -109,11 +111,13 @@ export function createApp(config: AppConfig) {
 				req.header(API_KEY_HEADER),
 				req.header(API_KEYS_HEADER),
 			);
+			const declaredSpaces = req.header(CLIENT_SPACES_HEADER);
 			server = createMcpServer({
 				spacesConfig: config.spacesConfig,
 				allowedEmails: config.allowedEmails,
 				userEmail,
 				userKeys: [fromToken, fromHeaders],
+				clientSpaces: declaredSpaces ? parseClientSpaces(declaredSpaces) : undefined,
 			});
 		} catch (e) {
 			// 設定ミスは利用者が直せるものなので、そのまま伝える。

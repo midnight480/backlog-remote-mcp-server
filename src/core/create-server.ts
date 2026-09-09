@@ -7,7 +7,12 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type BacklogSpacesConfig, parseSpacesConfig } from "./backlog-client";
-import { applyUserKeys, type UserApiKeys } from "./credentials";
+import {
+	applyClientSpaces,
+	applyUserKeys,
+	type ClientSpaces,
+	type UserApiKeys,
+} from "./credentials";
 import { registerDocumentTools } from "./tools/document-tools";
 import { registerCustomFieldTools } from "./tools/custom-field-tools";
 import { registerFileTools } from "./tools/file-tools";
@@ -44,6 +49,11 @@ export interface CreateServerOptions {
 	 * 運搬経路が複数ある場合 (トークンの封筒とヘッダ) に、後のものを優先させる。
 	 */
 	userKeys?: UserApiKeys | UserApiKeys[];
+	/**
+	 * クライアントが宣言した自分のスペース (スペース名 → ドメイン)。
+	 * 設定側が allowClientSpaces を有効にしている場合のみ受け付ける。
+	 */
+	clientSpaces?: ClientSpaces;
 }
 
 /** ALLOWED_EMAILS を小文字化した Set に変換する。不正なJSONは空集合として扱う。 */
@@ -101,8 +111,10 @@ export function registerTools(server: McpServer, options: CreateServerOptions): 
 		: options.userKeys
 			? [options.userKeys]
 			: [];
+	// スペースの集合を確定してからキーを重ねる。順序が逆だと、宣言された
+	// スペース向けのキーが「知らないスペース」として弾かれる。
 	const config: BacklogSpacesConfig = applyUserKeys(
-		parseSpacesConfig(options.spacesConfig),
+		applyClientSpaces(parseSpacesConfig(options.spacesConfig), options.clientSpaces ?? {}),
 		...sources,
 	);
 	registerSpaceTools(server, config);

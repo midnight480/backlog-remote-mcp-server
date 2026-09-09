@@ -45,7 +45,9 @@ Backlog のスペースごとに API キーを発行し、`BACKLOG_SPACES_CONFIG
 | `domain` | ✅ | Backlogスペースのドメイン (例: `your-space.backlog.com` または `your-space.backlog.jp`)。スキームは含めません |
 | `apiKey` | | サーバ設定に埋め込む共有APIキー。**省略する**とそのスペースは利用者本人のキー専用になり、呼び出し側が自分のキーを渡さないと使えません ([利用者ごとのAPIキー](#利用者ごとのapiキー)) |
 | `readOnly` | | `true` で **GET以外のAPI呼び出しを拒否**。共用スペースの誤更新・誤削除を防ぎます |
-| `defaultSpace` | ✅ | `space` パラメータ省略時に使用するスペース。`spaces` 内の `name` と一致させること |
+| `defaultSpace` | ✅ | `space` パラメータ省略時に使用するスペース。`spaces` 内の `name` と一致させること。`spaces` が空なら省略可 |
+| `allowClientSpaces` | | `true` でクライアントが自分のスペースを宣言できます ([後述](#クライアントに自分のスペースを持ち込ませる))。`spaces` が空の場合は必須 |
+| `allowedSpaceDomains` | | クライアントが宣言できるドメインのサフィックス。既定は Backlog のもの (`backlog.com` / `backlog.jp` / `backlogtool.com`) |
 
 この値は `.dev.vars` に1行のJSONとして設定します。
 
@@ -162,6 +164,75 @@ export BACKLOG_API_KEYS="WORK=仕事用のキー,SHARED=共用スペースのキ
 内側にあるので、初回接続時にはブラウザでの認可が走ります。2つの資格情報は別の
 問いに答えるものです。OAuth が「このサーバを使ってよい人か」、ヘッダが
 「Backlog に対して誰であるか」です。
+
+### クライアントに自分のスペースを持ち込ませる
+
+ここまでは、管理者が `BACKLOG_SPACES_CONFIG` に全スペースを登録する前提でした。
+利用者がそれぞれ *自分の* Backlog スペースを繋ぐサーバにする場合は、
+`allowClientSpaces` を有効にして、クライアント側から宣言させます。
+
+```json
+{
+  "spaces": [],
+  "allowClientSpaces": true
+}
+```
+
+クライアントはキーと一緒にスペースを送ります。
+
+```
+X-Backlog-Spaces:   MINE=my-team.backlog.jp
+X-Backlog-Api-Keys: MINE=本人の API キー
+```
+
+`mcp-remote` なら `--header` が 2 つ増えるだけです。
+
+```json
+      "args": [
+        "mcp-remote",
+        "https://<MCP_HOSTNAME>/mcp",
+        "--header", "X-Backlog-Spaces:${BACKLOG_SPACES}",
+        "--header", "X-Backlog-Api-Keys:${BACKLOG_API_KEYS}"
+      ],
+      "env": {
+        "BACKLOG_SPACES": "MINE=my-team.backlog.jp",
+        "BACKLOG_API_KEYS": "MINE=本人の API キー"
+      }
+```
+
+設定側に登録したスペースはそのまま使えて、宣言された分が追加される形です。
+設定側が空の場合は、最初に宣言されたスペースが既定になります。
+
+#### 何を強制しているか
+
+宛先ホストをクライアントに決めさせるのが、この機能の危険な点です。制限が無いと、
+サーバは任意のホストへリクエストを出す踏み台になります。しかもサーバは VPC の
+内側など、クライアントからは直接届かない位置にいることがあります。次の 3 つで
+封じています。
+
+| ルール | 理由 |
+|---|---|
+| ドメインは許可サフィックス配下の素のホスト名のみ | 任意ホストへの踏み台化を防ぐ |
+| 設定済みスペースの名前は再定義できない | いつもの名前が別ホストを指す事故を防ぐ |
+| `allowClientSpaces` が無効なのに宣言したらエラー (黙って無視しない) | 拒否されたと分かる。共有ユーザーとして動いてしまうのを防ぐ |
+
+既定のサフィックスは `backlog.com` / `backlog.jp` / `backlogtool.com` です。ラベル
+境界で照合するため、`evilbacklog.com` も `backlog.com.attacker.io` も拒否します。
+スキーム・ポート・パス・クエリ・認証情報を含むもの、IP アドレスも拒否します。
+どうしても必要な場合だけ差し替えてください。
+
+```json
+{
+  "spaces": [],
+  "allowClientSpaces": true,
+  "allowedSpaceDomains": ["backlog.jp"]
+}
+```
+
+なお宣言されたスペースに `readOnly` は効きません。あれは管理者が設定した共用
+スペースを守るためのガードで、クライアントは自分で宣言し直せる以上、意味を
+持たないためです。宣言されたスペースを縛るのは、送ったキーに対する Backlog 側の
+権限設定です。
 
 ### ヘッダを送れないクライアント
 

@@ -39,8 +39,10 @@ import {
 import {
 	API_KEY_HEADER,
 	API_KEYS_HEADER,
+	CLIENT_SPACES_HEADER,
 	InvalidCredentialError,
 	parseApiKeyHeaders,
+	parseClientSpaces,
 	type UserApiKeys,
 } from "../../core/credentials";
 import { handleAccessRequest } from "./access-handler";
@@ -65,11 +67,13 @@ const mcpHandler = {
 				request.headers.get(API_KEY_HEADER) ?? undefined,
 				request.headers.get(API_KEYS_HEADER) ?? undefined,
 			);
+			const declaredSpaces = request.headers.get(CLIENT_SPACES_HEADER);
 			server = createMcpServer({
 				spacesConfig: env.BACKLOG_SPACES_CONFIG,
 				allowedEmails: env.ALLOWED_EMAILS,
 				userEmail: props?.email,
 				userKeys: [fromToken, fromHeaders],
+				clientSpaces: declaredSpaces ? parseClientSpaces(declaredSpaces) : undefined,
 			});
 		} catch (e) {
 			// 設定ミスは利用者が直せるものなので、そのまま伝える。
