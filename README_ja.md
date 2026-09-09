@@ -19,7 +19,7 @@ Backlog を MCP (Model Context Protocol) 経由で操作するリモートサー
 | | Cloudflare | AWS | Google Cloud | Azure |
 |---|---|---|---|---|
 | 実行環境 | Workers (エッジ) | Lambda + API Gateway | Cloud Run | Container Apps |
-| MCP セッション | Durable Objects | ステートレス | ステートレス | ステートレス |
+| MCP セッション | ステートレス | ステートレス | ステートレス | ステートレス |
 | OAuth 認可サーバ | `@cloudflare/workers-oauth-provider` | `src/oauth` | `src/oauth` | `src/oauth` |
 | 上流 IdP | Cloudflare Access | Amazon Cognito | Google アカウント | Microsoft Entra ID |
 | 状態保存 | Workers KV | DynamoDB (TTL) | Firestore (TTL) | Cosmos DB (TTL) |
@@ -87,7 +87,7 @@ Google と Microsoft Entra ID の両方を選べます。表にあるのは既�
 | | Cloudflare | AWS | Google Cloud | Azure |
 |---|---|---|---|---|
 | リクエスト | Workers | Lambda + API Gateway | Cloud Run | Container Apps |
-| 状態保存 | Durable Objects + KV | DynamoDB | Firestore | Cosmos DB (サーバーレス) |
+| 状態保存 | Workers KV | DynamoDB | Firestore | Cosmos DB (サーバーレス) |
 | ログ | Workers Logs | CloudWatch Logs | Cloud Logging | Log Analytics |
 
 上記の想定 (月 3,000 リクエスト) であれば、**4 つとも各サービスの無料枠に収まる**
@@ -104,9 +104,9 @@ Zero Trust (Access) は **50 ユーザーまで無料**です。51 名以上に�
 
 **Cloudflare — Workers Free プランの上限**
 
-本プロジェクトは SQLite バックエンドの Durable Objects を使っており、
-[Workers Free プランでも利用できます](https://developers.cloudflare.com/durable-objects/platform/pricing/)。
-ただし Free プランは 1 日あたりのリクエスト数などに上限があり、超えるとエラーになります。
+本プロジェクトは MCP をステートレスで動かすため、必要なのは Workers と KV だけで、
+どちらも Workers Free プランで利用できます。ただし Free プランは 1 日あたりの
+リクエスト数などに上限があり、超えるとエラーになります。
 継続的に使うなら Workers Paid ($5/月〜) を検討してください。
 
 **AWS — Lambda の無料枠は恒久的**
@@ -202,10 +202,8 @@ flowchart TB
         CFW["Workers &nbsp;&nbsp; <i>OAuthProvider</i>"]
         CFA["Cloudflare Access<br/><i>または Google / Entra ID</i>"]
         CFKV["KV &nbsp;&nbsp; <i>OAUTH_KV</i>"]
-        CFDO["Durable Object<br/><i>BacklogMCP セッション</i>"]
         CFW -. "OIDC" .-> CFA
         CFW --- CFKV
-        CFW --> CFDO
     end
 
     subgraph aws["AWS &nbsp;&nbsp; src/platforms/aws"]
@@ -508,7 +506,7 @@ npm run dev
 # http://localhost:8788/mcp で起動
 ```
 
-`wrangler dev` は KV と Durable Object をローカルでエミュレートするため、実際の
+`wrangler dev` は KV をローカルでエミュレートするため、実際の
 Cloudflare リソースには触れません。
 
 ### 疎通確認

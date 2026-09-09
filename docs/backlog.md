@@ -143,13 +143,6 @@ OAuth flow, so the first connection opens a browser regardless. The two
 credentials answer different questions: OAuth decides *who may use this server*,
 the header decides *who you are to Backlog*.
 
-### Platform support
-
-The per-user header path is wired into the stateless runtimes: **AWS, Google
-Cloud, and Azure**. On **Cloudflare** the MCP session lives in a Durable Object
-whose tools are registered once per session, so per-request headers do not reach
-them; that deployment still needs a shared `apiKey` for now.
-
 ### Clients that cannot send headers
 
 Claude Desktop's custom-connector dialog and the claude.ai connector UI accept a

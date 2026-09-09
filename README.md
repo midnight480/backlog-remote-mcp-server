@@ -19,7 +19,7 @@ English | [日本語](README_ja.md)
 | | Cloudflare | AWS | Google Cloud | Azure |
 |---|---|---|---|---|
 | Runtime | Workers (edge) | Lambda + API Gateway | Cloud Run | Container Apps |
-| MCP session | Durable Objects | Stateless | Stateless | Stateless |
+| MCP session | Stateless | Stateless | Stateless | Stateless |
 | OAuth authorization server | `@cloudflare/workers-oauth-provider` | `src/oauth` | `src/oauth` | `src/oauth` |
 | Upstream IdP | Cloudflare Access | Amazon Cognito | Google account | Microsoft Entra ID |
 | State storage | Workers KV | DynamoDB (TTL) | Firestore (TTL) | Cosmos DB (TTL) |
@@ -87,7 +87,7 @@ per 10,000 operations, and this server caches secrets after the first read.
 | | Cloudflare | AWS | Google Cloud | Azure |
 |---|---|---|---|---|
 | Requests | Workers | Lambda + API Gateway | Cloud Run | Container Apps |
-| State storage | Durable Objects + KV | DynamoDB | Firestore | Cosmos DB (serverless) |
+| State storage | Workers KV | DynamoDB | Firestore | Cosmos DB (serverless) |
 | Logs | Workers Logs | CloudWatch Logs | Cloud Logging | Log Analytics |
 
 At the assumed volume (~3,000 requests/month) **all four stay within their free
@@ -104,10 +104,9 @@ billed **per user per month**. This is the cost that scales with headcount.
 
 **Cloudflare — Workers Free plan limits**
 
-This project uses SQLite-backed Durable Objects, which
-[are available on the Workers Free plan](https://developers.cloudflare.com/durable-objects/platform/pricing/).
-The Free plan does cap daily requests and other usage, and exceeding a cap returns errors.
-For sustained use consider Workers Paid (from $5/month).
+This project runs MCP statelessly, so it needs only Workers and KV — both available
+on the Workers Free plan. The Free plan does cap daily requests and other usage, and
+exceeding a cap returns errors. For sustained use consider Workers Paid (from $5/month).
 
 **AWS — the Lambda free tier is perpetual**
 
@@ -203,10 +202,8 @@ flowchart TB
         CFW["Workers &nbsp;&nbsp; <i>OAuthProvider</i>"]
         CFA["Cloudflare Access<br/><i>or Google / Entra ID</i>"]
         CFKV["KV &nbsp;&nbsp; <i>OAUTH_KV</i>"]
-        CFDO["Durable Object<br/><i>BacklogMCP session</i>"]
         CFW -. "OIDC" .-> CFA
         CFW --- CFKV
-        CFW --> CFDO
     end
 
     subgraph aws["AWS &nbsp;&nbsp; src/platforms/aws"]
@@ -512,8 +509,7 @@ npm run dev
 # Server starts at http://localhost:8788/mcp
 ```
 
-`wrangler dev` emulates KV and Durable Objects locally, so it never touches real
-Cloudflare resources.
+`wrangler dev` emulates KV locally, so it never touches real Cloudflare resources.
 
 ### Verifying the setup
 
