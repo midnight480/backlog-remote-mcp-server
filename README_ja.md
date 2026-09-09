@@ -318,6 +318,8 @@ src/
     backlog-client.ts      Backlog API クライアント (readOnly ガードもここ)
     tools/                 MCP ツール 158 個 (公開 API を網羅)
     create-server.ts       MCP サーバの組み立てと認可判定
+    credentials.ts         利用者ごとの Backlog キーの解析と重ね合わせ
+    credential-envelope.ts キーをトークンに封じる処理 (保存しないための仕組み)
   oauth/                   Node 系の実行環境で共通。OAuth 認可サーバ (Express)
     provider.ts            OAuthServerProvider の実装
     store.ts               AuthStore インターフェース (永続化の差し替え点)
@@ -350,6 +352,13 @@ infra/
 Express アプリを実行環境に渡すエントリポイントを書けば済みます。認可サーバ・ツール・
 Backlog クライアントはそのまま再利用されます。
 ## MCPクライアントからの接続
+
+接続で認証されるのは *このサーバ* に対してです。Backlog を本人として操作するには
+本人の Backlog API キーも必要で、渡し方はクライアントによって変わります。HTTP
+ヘッダを設定できるクライアントはリクエストごとに送り、できないクライアントは
+同意画面で一度だけ入力します。どちらの経路でもサーバは控えを持ちません。ヘッダ名と
+クライアント別の設定例は
+[利用者ごとの API キー](docs/backlog_ja.md#利用者ごとのapiキー) を参照してください。
 
 ### Claude Desktop / Kiro / Cursor (mcp-remoteプロキシ経由)
 
@@ -558,9 +567,13 @@ npm test             # 下記のテストをまとめて実行
 |---|---|
 | `npm run test:oauth` | OAuth 認可サーバのロジック (DCR、PKCE、トークンの使い捨て、スコープ、失効) |
 | `npm run test:oauth-consent` | 同意画面 (HTML エスケープ、署名 Cookie、CSRF、承認ゲート) |
+| `npm run test:oauth-upstream` | 上流 OIDC クライアント (PKCE ペア、トークン交換、ID トークン検証) |
 | `npm run test:aws-store` | DynamoDB ストアのクライアント登録 TTL と延長 |
+| `npm run test:credentials` | 利用者ごとのキーのヘッダ解析・重ね合わせ・綴り違いを黙って通さないこと |
+| `npm run test:user-keys` | 本人のキーが Backlog への発信リクエストに乗るまでの通し確認 |
+| `npm run test:envelope` | 封筒の暗号化と、Backlog のキーが保存先に一度も書かれないこと |
 
-いずれも外部サービスに接続せず、DynamoDB と上流 IdP はスタブに差し替えて動きます。
+いずれも外部サービスに接続せず、DynamoDB・Backlog・上流 IdP はスタブに差し替えて動きます。
 
 ### 設定ファイル
 

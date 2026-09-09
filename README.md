@@ -319,6 +319,8 @@ src/
     backlog-client.ts      Backlog API client (including the readOnly guard)
     tools/                 158 MCP tools (full public API coverage)
     create-server.ts       MCP server assembly and authorization
+    credentials.ts         Per-user Backlog keys: parsing and overlay
+    credential-envelope.ts Sealing those keys into tokens, so none are stored
   oauth/                   Node runtimes. OAuth authorization server (Express)
     provider.ts            OAuthServerProvider implementation
     store.ts               AuthStore interface — the persistence port
@@ -351,6 +353,13 @@ implementing `AuthStore` for that platform's database, a secret lookup, and an e
 point that hands the Express app to the runtime. The authorization server, the tools
 and the Backlog client are all reused unchanged.
 ## Connecting from MCP Clients
+
+Connecting authenticates you to *this server*. Acting on Backlog as yourself needs
+your own Backlog API key as well, and how you supply it depends on the client:
+those that can set HTTP headers send it per request, the rest type it once into the
+consent screen. Either way the server keeps no copy. See
+[Per-user API keys](docs/backlog.md#per-user-api-keys) for the header names and
+per-client configuration.
 
 ### Claude Desktop / Kiro / Cursor (via mcp-remote proxy)
 
@@ -560,9 +569,13 @@ npm test             # runs all suites below
 |---|---|
 | `npm run test:oauth` | OAuth authorization server logic (DCR, PKCE, single-use tokens, scopes, revocation) |
 | `npm run test:oauth-consent` | Consent screen (HTML escaping, signed cookies, CSRF, approval gate) |
+| `npm run test:oauth-upstream` | Upstream OIDC client (PKCE pair, token exchange, ID token verification) |
 | `npm run test:aws-store` | DynamoDB store client-registration TTL and renewal |
+| `npm run test:credentials` | Per-user key headers: parsing, overlay, and refusal to fall back on a typo |
+| `npm run test:user-keys` | End to end: the caller's key reaching the outgoing Backlog request |
+| `npm run test:envelope` | The sealed envelope, and that no Backlog key is ever written to the store |
 
-None of them reach external services — DynamoDB and the upstream IdP are stubbed.
+None of them reach external services — DynamoDB, Backlog and the upstream IdP are stubbed.
 
 ### Configuration files
 
