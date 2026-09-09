@@ -39,8 +39,11 @@ export interface CreateServerOptions {
 	 * 利用者本人の Backlog API キー (スペース名 → キー)。
 	 * リクエストごとにクライアントから運ばれてくるもので、サーバは保存しない。
 	 * 指定されたスペースでは設定側の共有キーより優先される。
+	 *
+	 * 配列を渡すと、優先度の低い順に並んでいるものとして扱う。
+	 * 運搬経路が複数ある場合 (トークンの封筒とヘッダ) に、後のものを優先させる。
 	 */
-	userKeys?: UserApiKeys;
+	userKeys?: UserApiKeys | UserApiKeys[];
 }
 
 /** ALLOWED_EMAILS を小文字化した Set に変換する。不正なJSONは空集合として扱う。 */
@@ -93,9 +96,14 @@ export function registerTools(server: McpServer, options: CreateServerOptions): 
 	}
 
 	// 共有キーの上に本人のキーを重ねる。以降のツールは出所を意識しない。
+	const sources = Array.isArray(options.userKeys)
+		? options.userKeys
+		: options.userKeys
+			? [options.userKeys]
+			: [];
 	const config: BacklogSpacesConfig = applyUserKeys(
 		parseSpacesConfig(options.spacesConfig),
-		options.userKeys ?? {},
+		...sources,
 	);
 	registerSpaceTools(server, config);
 	registerProjectTools(server, config);

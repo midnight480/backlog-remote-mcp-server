@@ -147,8 +147,38 @@ the header decides *who you are to Backlog*.
 
 Claude Desktop's custom-connector dialog and the claude.ai connector UI accept a
 URL and optional OAuth client credentials, but have no field for a custom header.
-Those clients cannot use the per-user path yet and need a space with a shared
-`apiKey`.
+For those, the key is collected once during the authorization flow instead.
+
+Any space configured without an `apiKey` gets an input box on the consent screen
+that appears when you connect. Paste your key there and approve; nothing else to
+configure. Since the server keeps no copy, the consent screen appears on every
+re-authorization — that is, whenever the refresh token expires, not on every request.
+
+**The key is still never stored.** It is sealed with AES-256-GCM under a
+server-held key and carried by the client the whole way:
+
+```
+consent form → short-lived browser cookie → authorization code → access / refresh token
+```
+
+At every step the server persists only the identifier half; the sealed half lives
+in the string the client holds. Nothing about the key reaches DynamoDB, Firestore,
+or Cosmos DB. A header, when present, overrides whatever the token carries.
+
+The trade-off is that the sealed key rides in the refresh token, which is long-lived.
+Treat those tokens as you would the key itself, and revoke from Backlog Personal
+Settings → API if a client is compromised.
+
+### Platform support
+
+The consent-screen path works on **AWS, Google Cloud, and Azure**, which run this
+project's own authorization server.
+
+On **Cloudflare** the authorization server is `@cloudflare/workers-oauth-provider`,
+which owns the token format and stores its own encrypted copy of any data attached
+to a grant. There is no way to carry the key without it being written to KV, so
+that path is not enabled there. Cloudflare deployments can use the header path
+(all JSON-configured clients) or a shared `apiKey`.
 
 ## Important Notes
 

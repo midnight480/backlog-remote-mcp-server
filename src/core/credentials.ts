@@ -13,7 +13,7 @@
 // この層が扱うのは「入力の解析と検証」だけで、HTTP そのものには触れない。
 // 実行環境ごとの配線 (Express の req からヘッダを読む等) は呼び出し側の責務。
 
-import type { BacklogSpace, BacklogSpacesConfig } from "./backlog-client";
+import { type BacklogSpace, type BacklogSpacesConfig, parseSpacesConfig } from "./backlog-client";
 
 /** スペース名 (小文字) → その利用者自身の API キー */
 export type UserApiKeys = Record<string, string>;
@@ -139,32 +139,39 @@ export function parseApiKeyHeaders(single?: string, list?: string): UserApiKeys 
  */
 export function applyUserKeys(
 	config: BacklogSpacesConfig,
-	userKeys: UserApiKeys,
+	...sources: UserApiKeys[]
 ): BacklogSpacesConfig {
 	const byName = new Map(config.spaces.map((s) => [s.name.toLowerCase(), s]));
+	const displayName = (target: string) =>
+		config.spaces.find((s) => s.name.toLowerCase() === target)?.name ?? target;
 
-	// 予約名をデフォルトスペースへ解決する
+	// 予約名をデフォルトスペースへ解決する。
+	// 経路をまたぐ場合は後の source が勝つ (ヘッダがトークンの封筒を上書きする)。
 	const resolved: UserApiKeys = {};
-	for (const [name, key] of Object.entries(userKeys)) {
-		const target = name === DEFAULT_SPACE_SENTINEL ? config.defaultSpace.toLowerCase() : name;
-		if (!byName.has(target)) {
-			const available = config.spaces.map((s) => s.name).join(", ");
-			// 綴り間違いを黙って共有キーへフォールバックさせない。
-			// 本人のキーのつもりで別人の権限で書き込む事故を防ぐ。
-			throw new InvalidCredentialError(
-				`No Backlog space named "${name === DEFAULT_SPACE_SENTINEL ? config.defaultSpace : name}" is configured. ` +
-					`Available spaces: ${available}`,
-			);
+	for (const source of sources) {
+		const fromThisSource = new Set<string>();
+		for (const [name, key] of Object.entries(source)) {
+			const target = name === DEFAULT_SPACE_SENTINEL ? config.defaultSpace.toLowerCase() : name;
+			if (!byName.has(target)) {
+				const available = config.spaces.map((s) => s.name).join(", ");
+				// 綴り間違いを黙って共有キーへフォールバックさせない。
+				// 本人のキーのつもりで別人の権限で書き込む事故を防ぐ。
+				throw new InvalidCredentialError(
+					`No Backlog space named "${name === DEFAULT_SPACE_SENTINEL ? config.defaultSpace : name}" is configured. ` +
+						`Available spaces: ${available}`,
+				);
+			}
+			// 同じ経路の中で同じスペースを二重に指した場合は、どちらが勝つかを
+			// 暗黙に決めず明示的に失敗させる。
+			if (fromThisSource.has(target)) {
+				throw new InvalidCredentialError(
+					`Two different API keys were supplied for space "${displayName(target)}" ` +
+						`(${API_KEY_HEADER} applies to the default space). Send only one.`,
+				);
+			}
+			fromThisSource.add(target);
+			resolved[target] = key;
 		}
-		// 両ヘッダが同じスペースを指した場合に、どちらが勝つかを暗黙に決めない。
-		// 利用者が意図を確認できるよう明示的に失敗させる。
-		if (target in resolved) {
-			throw new InvalidCredentialError(
-				`Two different API keys were supplied for space "${config.spaces.find((s) => s.name.toLowerCase() === target)?.name ?? target}" ` +
-					`(${API_KEY_HEADER} applies to the default space). Send only one.`,
-			);
-		}
-		resolved[target] = key;
 	}
 
 	const spaces: BacklogSpace[] = config.spaces.map((space) => {
@@ -176,4 +183,16 @@ export function applyUserKeys(
 	});
 
 	return { spaces, defaultSpace: config.defaultSpace };
+}
+
+/**
+ * サーバ側に共有キーが無く、本人のキーを受け取らないと使えないスペース名。
+ *
+ * ヘッダを送れない GUI クライアント向けに、同意画面へ入力欄を出す対象を決める。
+ * 全スペースが共有キーを持つ構成では空になり、同意画面の見た目は変わらない。
+ */
+export function spacesNeedingUserKey(spacesConfig: string): string[] {
+	return parseSpacesConfig(spacesConfig)
+		.spaces.filter((s) => !s.apiKey)
+		.map((s) => s.name);
 }

@@ -9,7 +9,7 @@ English | [日本語](README_ja.md)
 
 - **Multi-space** — serve several Backlog spaces from one server
 - **Read-only guard** — mark a shared space `readOnly` to reject every write API call
-- **Per-user Backlog keys** — clients send the caller's own API key with each request, so Backlog records the real person instead of one shared system user. The server stores no Backlog credentials ([details](docs/backlog.md#per-user-api-keys))
+- **Per-user Backlog keys** — each caller acts as themselves in Backlog instead of one shared system user. Clients that can set headers send the key per request; the rest enter it once on the consent screen. **The server stores no Backlog credentials either way** ([details](docs/backlog.md#per-user-api-keys))
 - **OAuth 2.1 + PKCE** — supports Dynamic Client Registration (DCR), so MCP clients connect directly
 - **Email allowlist** — restrict who can use the server
 - **Two runtimes** — the same business logic runs on Cloudflare or AWS

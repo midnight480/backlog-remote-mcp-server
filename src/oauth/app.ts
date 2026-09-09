@@ -21,7 +21,9 @@ import {
 	API_KEYS_HEADER,
 	InvalidCredentialError,
 	parseApiKeyHeaders,
+	type UserApiKeys,
 } from "../core/credentials";
+import { clearEnvelopeCookie, readEnvelopeCookie } from "./credential-envelope";
 import type { McpOAuthProvider } from "./provider";
 import { toWebRequest, writeWebResponse } from "./web-bridge";
 
@@ -74,7 +76,11 @@ export function createApp(config: AppConfig) {
 			return;
 		}
 		try {
-			const redirectTo = await config.provider.handleUpstreamCallback(code, state);
+			// 同意画面で預かった封筒はここで取り出し、認可コードへ載せ替える。
+			// ブラウザに残す理由はないので、成否にかかわらず捨てる。
+			const sealed = readEnvelopeCookie(req);
+			res.setHeader("Set-Cookie", clearEnvelopeCookie);
+			const redirectTo = await config.provider.handleUpstreamCallback(code, state, sealed);
 			res.redirect(redirectTo);
 		} catch (e) {
 			console.error("callback failed:", e);
@@ -95,7 +101,11 @@ export function createApp(config: AppConfig) {
 		// このサーバは保存せず、この 1 リクエストの間だけ設定に重ねて使う。
 		let server: ReturnType<typeof createMcpServer>;
 		try {
-			const userKeys = parseApiKeyHeaders(
+			// 運搬経路は2つある。ヘッダを送れるクライアントはヘッダで、
+			// 送れない GUI クライアントはトークンに封じた封筒で運ぶ。
+			// 両方あるときは、接続ごとに明示されるヘッダを優先する。
+			const fromToken = (req.auth?.extra?.userKeys as UserApiKeys | undefined) ?? {};
+			const fromHeaders = parseApiKeyHeaders(
 				req.header(API_KEY_HEADER),
 				req.header(API_KEYS_HEADER),
 			);
@@ -103,7 +113,7 @@ export function createApp(config: AppConfig) {
 				spacesConfig: config.spacesConfig,
 				allowedEmails: config.allowedEmails,
 				userEmail,
-				userKeys,
+				userKeys: [fromToken, fromHeaders],
 			});
 		} catch (e) {
 			// 設定ミスは利用者が直せるものなので、そのまま伝える。
