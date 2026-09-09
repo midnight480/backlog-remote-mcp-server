@@ -16,6 +16,12 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import express, { type Request, type Response } from "express";
 import { createMcpServer, SERVER_NAME, SERVER_VERSION } from "../core/create-server";
+import {
+	API_KEY_HEADER,
+	API_KEYS_HEADER,
+	InvalidCredentialError,
+	parseApiKeyHeaders,
+} from "../core/credentials";
 import type { McpOAuthProvider } from "./provider";
 import { toWebRequest, writeWebResponse } from "./web-bridge";
 
@@ -85,11 +91,34 @@ export function createApp(config: AppConfig) {
 		// requireBearerAuth が検証済みの情報を req.auth に載せる
 		const userEmail = (req.auth?.extra?.userEmail as string | undefined) ?? "";
 
-		const server = createMcpServer({
-			spacesConfig: config.spacesConfig,
-			allowedEmails: config.allowedEmails,
-			userEmail,
-		});
+		// 利用者本人の Backlog API キーはヘッダで運ばれてくる。
+		// このサーバは保存せず、この 1 リクエストの間だけ設定に重ねて使う。
+		let server: ReturnType<typeof createMcpServer>;
+		try {
+			const userKeys = parseApiKeyHeaders(
+				req.header(API_KEY_HEADER),
+				req.header(API_KEYS_HEADER),
+			);
+			server = createMcpServer({
+				spacesConfig: config.spacesConfig,
+				allowedEmails: config.allowedEmails,
+				userEmail,
+				userKeys,
+			});
+		} catch (e) {
+			// 設定ミスは利用者が直せるものなので、そのまま伝える。
+			// キーの値は載せない (InvalidCredentialError は位置しか報告しない)。
+			if (e instanceof InvalidCredentialError) {
+				res.status(400).json({
+					jsonrpc: "2.0",
+					error: { code: -32602, message: e.message },
+					id: null,
+				});
+				return;
+			}
+			throw e;
+		}
+
 		const transport = new WebStandardStreamableHTTPServerTransport({
 			// sessionIdGenerator: undefined でステートレスモードになる
 			sessionIdGenerator: undefined,

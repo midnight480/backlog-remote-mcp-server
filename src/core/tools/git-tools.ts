@@ -8,6 +8,7 @@ import {
 	callBacklogApi,
 	callBacklogApiBinary,
 	callBacklogApiForm,
+	requireApiKey,
 	resolveSpace,
 } from "../backlog-client";
 import { binaryToContent } from "./file-tools";
@@ -66,7 +67,7 @@ export function registerGitTools(server: McpServer, config: BacklogSpacesConfig)
 			const url = new URL(
 				`https://${spaceConfig.domain}/api/v2/projects/${projectIdOrKey}/git/repositories/${repoIdOrName}/pullRequests`,
 			);
-			url.searchParams.set("apiKey", spaceConfig.apiKey);
+			url.searchParams.set("apiKey", requireApiKey(spaceConfig));
 			if (count) url.searchParams.set("count", String(count));
 			if (offset) url.searchParams.set("offset", String(offset));
 			if (statusId) statusId.forEach((id) => url.searchParams.append("statusId[]", String(id)));

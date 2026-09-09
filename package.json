@@ -29,9 +29,10 @@
 		"azure:validate": "az bicep build --file infra/azure/main.bicep --stdout > /dev/null && echo 'Bicep OK'",
 		"test:oauth-consent": "tsx tests/oauth-consent.test.mts",
 		"test:oauth-upstream": "tsx tests/oauth-upstream.test.mts",
-		"test": "npm run test:oauth && npm run test:oauth-consent && npm run test:oauth-upstream && npm run test:aws-store",
+		"test": "npm run test:oauth && npm run test:oauth-consent && npm run test:oauth-upstream && npm run test:aws-store && npm run test:credentials",
 		"test:aws-store": "tsx tests/aws-store.test.mts",
-		"mcpb:pack": "node scripts/build-mcpb.mjs"
+		"mcpb:pack": "node scripts/build-mcpb.mjs",
+		"test:credentials": "tsx tests/credentials.test.mts"
 	},
 	"dependencies": {
 		"@aws-sdk/client-dynamodb": "^3.1116.0",

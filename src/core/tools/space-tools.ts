@@ -48,7 +48,9 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 	// List available organizations/spaces
 	server.tool(
 		"list_spaces",
-		"Returns list of configured Backlog spaces, which one is the default, and whether each one allows writes.",
+		"Returns list of configured Backlog spaces, which one is the default, whether each one allows writes, " +
+			"and whether an API key is available for it in this session. " +
+			"A space with credential \"missing\" cannot be used until the client sends the caller's own API key.",
 		{},
 		async () => {
 			const spaces = config.spaces.map((s) => ({
@@ -56,6 +58,8 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 				domain: s.domain,
 				isDefault: s.name === config.defaultSpace,
 				readOnly: s.readOnly === true,
+				// キーの値そのものは絶対に返さない。使えるかどうかと出所だけを示す。
+				credential: s.apiKey ? (s.keySource ?? "server") : "missing",
 			}));
 			return {
 				content: [{ type: "text", text: JSON.stringify(spaces, null, 2) }],

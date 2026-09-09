@@ -7,6 +7,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type BacklogSpacesConfig, parseSpacesConfig } from "./backlog-client";
+import { applyUserKeys, type UserApiKeys } from "./credentials";
 import { registerDocumentTools } from "./tools/document-tools";
 import { registerCustomFieldTools } from "./tools/custom-field-tools";
 import { registerFileTools } from "./tools/file-tools";
@@ -34,6 +35,12 @@ export interface CreateServerOptions {
 	allowedEmails?: string;
 	/** 認証済みユーザーのメールアドレス */
 	userEmail?: string;
+	/**
+	 * 利用者本人の Backlog API キー (スペース名 → キー)。
+	 * リクエストごとにクライアントから運ばれてくるもので、サーバは保存しない。
+	 * 指定されたスペースでは設定側の共有キーより優先される。
+	 */
+	userKeys?: UserApiKeys;
 }
 
 /** ALLOWED_EMAILS を小文字化した Set に変換する。不正なJSONは空集合として扱う。 */
@@ -85,7 +92,11 @@ export function registerTools(server: McpServer, options: CreateServerOptions): 
 		return;
 	}
 
-	const config: BacklogSpacesConfig = parseSpacesConfig(options.spacesConfig);
+	// 共有キーの上に本人のキーを重ねる。以降のツールは出所を意識しない。
+	const config: BacklogSpacesConfig = applyUserKeys(
+		parseSpacesConfig(options.spacesConfig),
+		options.userKeys ?? {},
+	);
 	registerSpaceTools(server, config);
 	registerProjectTools(server, config);
 	registerIssueTools(server, config);
