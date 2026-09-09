@@ -1,6 +1,6 @@
 # Backlog API Keys and Space Configuration
 
-Applies to: both Cloudflare and AWS
+Applies to: all four deployment targets
 
 Issue an API key per Backlog space and assemble `BACKLOG_SPACES_CONFIG`.
 A single server can serve multiple spaces.

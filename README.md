@@ -1,7 +1,7 @@
 # Backlog Remote MCP Server
 
 A remote MCP (Model Context Protocol) server for Backlog.
-**Deployable to either Cloudflare Workers or AWS.**
+**Deployable to Cloudflare Workers, AWS, Google Cloud, or Azure.**
 
 English | [日本語](README_ja.md)
 
@@ -12,7 +12,7 @@ English | [日本語](README_ja.md)
 - **Per-user Backlog keys** — each caller acts as themselves in Backlog instead of one shared system user. Clients that can set headers send the key per request; the rest enter it once on the consent screen. **The server stores no Backlog credentials either way** ([details](docs/backlog.md#per-user-api-keys))
 - **OAuth 2.1 + PKCE** — supports Dynamic Client Registration (DCR), so MCP clients connect directly
 - **Email allowlist** — restrict who can use the server
-- **Two runtimes** — the same business logic runs on Cloudflare or AWS
+- **Four deployment targets** — the same business logic runs on Cloudflare, AWS, Google Cloud, or Azure
 
 ## Choosing a deployment
 
@@ -167,7 +167,7 @@ Additional tools depend on the deployment target:
 
 ### Order to follow
 
-1. **[Backlog API keys and space configuration](docs/backlog.md)** — shared by both platforms
+1. **[Backlog API keys and space configuration](docs/backlog.md)** — shared by every platform
 2. Pick an identity provider
    - **[Google Cloud](docs/idp-google.md)**
    - **[Microsoft Entra ID](docs/idp-entra-id.md)**
@@ -185,8 +185,8 @@ Troubleshooting sections live at the end of each deployment guide.
 
 ## Architecture
 
-The same MCP server runs on two platforms. Each platform subgraph holds its own
-wiring — gateway, storage and upstream IdP — and both funnel into the shared
+The same MCP server runs on four platforms. Each platform subgraph holds its own
+wiring — gateway, storage and upstream IdP — and they all funnel into the shared
 `src/core`, which is where the tools and the Backlog client live.
 
 ```mermaid
@@ -561,7 +561,7 @@ Types are split per platform, so misusing a Workers global in AWS code (or vice 
 is a type error.
 
 ```bash
-npm run type-check   # both tsconfig.cloudflare.json and tsconfig.aws.json
+npm run type-check   # one pass per platform tsconfig (cloudflare / aws / gcp / azure)
 npm test             # runs all suites below
 ```
 

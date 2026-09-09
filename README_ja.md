@@ -1,7 +1,7 @@
 # Backlog Remote MCP Server
 
 Backlog を MCP (Model Context Protocol) 経由で操作するリモートサーバです。
-**Cloudflare Workers と AWS のどちらにもデプロイできます。**
+**Cloudflare Workers / AWS / Google Cloud / Azure のいずれにもデプロイできます。**
 
 [English](README.md) | 日本語
 
@@ -12,7 +12,7 @@ Backlog を MCP (Model Context Protocol) 経由で操作するリモートサー
 - **利用者ごとの Backlog キー** — 共有のシステムユーザーではなく、操作した本人として Backlog に記録されます。ヘッダを設定できるクライアントはリクエストごとに、できないクライアントは同意画面で一度だけキーを渡します。**どちらの経路でもサーバは Backlog の資格情報を保存しません** ([詳細](docs/backlog_ja.md#利用者ごとのapiキー))
 - **OAuth 2.1 + PKCE** — 動的クライアント登録 (DCR) に対応し、MCP クライアントから直接接続できます
 - **メールアドレスによる認可** — 許可リストで利用者を限定します
-- **2 つの実行環境** — ビジネスロジックを共有したまま Cloudflare / AWS のどちらでも動きます
+- **4 つのデプロイ先** — ビジネスロジックを共有したまま Cloudflare / AWS / Google Cloud / Azure のいずれでも動きます
 
 ## デプロイ先を選ぶ
 
@@ -167,7 +167,7 @@ npm install
 
 ### 進める順番
 
-1. **[Backlog の API キーとスペース設定](docs/backlog_ja.md)** — 両プラットフォーム共通
+1. **[Backlog の API キーとスペース設定](docs/backlog_ja.md)** — 全プラットフォーム共通
 2. Identity Provider を選ぶ
    - **[Google Cloud](docs/idp-google_ja.md)**
    - **[Microsoft Entra ID](docs/idp-entra-id_ja.md)**
@@ -185,8 +185,8 @@ npm install
 
 ## アーキテクチャ
 
-同じ MCP サーバを 2 つのプラットフォームで動かします。プラットフォームごとの配線
-(入口・ストレージ・上流 IdP) はそれぞれの枠内で完結し、どちらも共通部分の
+同じ MCP サーバを 4 つのプラットフォームで動かします。プラットフォームごとの配線
+(入口・ストレージ・上流 IdP) はそれぞれの枠内で完結し、いずれも共通部分の
 `src/core` に合流します。ツール実装と Backlog クライアントはそこにあります。
 
 ```mermaid
@@ -559,7 +559,7 @@ npm run dev:https
 誤用するとエラーになります (逆も同様)。
 
 ```bash
-npm run type-check   # tsconfig.cloudflare.json と tsconfig.aws.json の両方
+npm run type-check   # プラットフォームごとの tsconfig を順に (cloudflare / aws / gcp / azure)
 npm test             # 下記のテストをまとめて実行
 ```
 

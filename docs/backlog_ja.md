@@ -1,6 +1,6 @@
 # Backlog の API キーとスペース設定
 
-対象: Cloudflare / AWS 共通
+対象: 4 つのデプロイ先すべて
 
 Backlog のスペースごとに API キーを発行し、`BACKLOG_SPACES_CONFIG` を組み立てます。
 複数スペースを 1 つのサーバから扱えます。

@@ -1,9 +1,9 @@
 # Using Google Cloud as the Identity Provider
 
-Applies to: both Cloudflare and AWS (the integration target differs)
+Applies to: all four deployment targets (the integration target differs)
 
-Lets users sign in with a Google account. Creating the OAuth client is the same for
-both platforms — **only the redirect URI you register differs**.
+Lets users sign in with a Google account. Creating the OAuth client is the same
+everywhere — **only the redirect URI you register differs**.
 
 | Deployment | Authorized redirect URI |
 |---|---|
