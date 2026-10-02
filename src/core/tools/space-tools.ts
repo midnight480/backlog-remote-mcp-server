@@ -70,7 +70,8 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 	// Get space info
 	server.tool(
 		"get_space",
-		"Returns information about the Backlog space.",
+		"Returns information about the Backlog space, including feature flags such as " +
+			"parentChildIssue and grandchildIssueEnabled (whether 3-level issue hierarchies are available).",
 		{
 			space: z
 				.string()

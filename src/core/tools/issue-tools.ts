@@ -4,16 +4,83 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+	type BacklogQueryValue,
 	type BacklogSpacesConfig,
 	callBacklogApi,
 	callBacklogApiForm,
-	requireApiKey,
 	resolveSpace,
 } from "../backlog-client";
 
 const asText = (result: unknown) => ({
 	content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
 });
+
+/**
+ * GET /issues と /issues/count で共通の絞り込み条件。
+ * 配列パラメータは callBacklogApi が key[]=v1&key[]=v2 形式に展開する。
+ */
+const issueFilterParams = {
+	projectId: z.array(z.number()).optional().describe("Project IDs to filter."),
+	issueTypeId: z.array(z.number()).optional().describe("Issue type IDs."),
+	categoryId: z.array(z.number()).optional().describe("Category IDs."),
+	versionId: z.array(z.number()).optional().describe("Version IDs."),
+	milestoneId: z.array(z.number()).optional().describe("Milestone IDs."),
+	statusId: z.array(z.number()).optional().describe("Status IDs. Use get_project_statuses to find IDs."),
+	priorityId: z.array(z.number()).optional().describe("Priority IDs."),
+	assigneeId: z.array(z.number()).optional().describe("Assignee user IDs."),
+	createdUserId: z.array(z.number()).optional().describe("Creator user IDs."),
+	resolutionId: z.array(z.number()).optional().describe("Resolution IDs. Use get_resolutions to find IDs."),
+	id: z.array(z.number()).optional().describe("Issue IDs."),
+	parentIssueId: z
+		.array(z.number())
+		.optional()
+		.describe("Parent issue IDs. Filters to issues directly under each given parent, covering both child and grandchild issues."),
+	parentChild: z
+		.number()
+		.int()
+		.min(0)
+		.max(10)
+		.optional()
+		.describe(
+			"Filter by parent-child level. 0=all (default), 1=exclude subtasks, " +
+				"2=child or grandchild issues, 3=standalone (no parent and no children), " +
+				"4=issues having children, 5=grandchild only, 6=child only, 7=top level only, " +
+				"8=excluding grandchildren, 9=excluding top level of a 3-level hierarchy, 10=bottom level only.",
+		),
+	attachment: z.boolean().optional().describe("True for issues with attachments, false for issues without."),
+	sharedFile: z.boolean().optional().describe("True for issues with shared files, false for issues without."),
+	hasDueDate: z
+		.literal(false)
+		.optional()
+		.describe("Pass false to return only issues without a due date. Backlog rejects true."),
+	createdSince: z.string().optional().describe("Created since (yyyy-MM-dd)."),
+	createdUntil: z.string().optional().describe("Created until (yyyy-MM-dd)."),
+	updatedSince: z.string().optional().describe("Updated since (yyyy-MM-dd)."),
+	updatedUntil: z.string().optional().describe("Updated until (yyyy-MM-dd)."),
+	startDateSince: z.string().optional().describe("Start date since (yyyy-MM-dd)."),
+	startDateUntil: z.string().optional().describe("Start date until (yyyy-MM-dd)."),
+	dueDateSince: z.string().optional().describe("Due date since (yyyy-MM-dd)."),
+	dueDateUntil: z.string().optional().describe("Due date until (yyyy-MM-dd)."),
+	keyword: z.string().optional().describe("Search keyword."),
+};
+
+/** 課題の expand パラメータ。childIssueSummary で直下の子課題の件数を返す。 */
+const issueExpandParam = z
+	.array(z.enum(["childIssueSummary"]))
+	.optional()
+	.describe(
+		'Pass ["childIssueSummary"] to include a childIssueSummary object on each issue ' +
+			"with the total number of direct child issues (total) and the number of closed ones (closed).",
+	);
+
+/** issueFilterParams で受けた値をクエリにそのまま詰め直す */
+function issueFilterQuery(params: Record<string, unknown>): Record<string, BacklogQueryValue> {
+	const query: Record<string, BacklogQueryValue> = {};
+	for (const [k, v] of Object.entries(params)) {
+		if (v !== undefined) query[k] = v as BacklogQueryValue;
+	}
+	return query;
+}
 
 export function registerIssueTools(server: McpServer, config: BacklogSpacesConfig) {
 	server.tool(
@@ -22,88 +89,62 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key (e.g., PROJECT-1)."),
+			expand: issueExpandParam,
 		},
-		async ({ space: spaceName, issueIdOrKey }) => {
+		async ({ space: spaceName, issueIdOrKey, expand }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
-			const result = await callBacklogApi(spaceConfig, { path: `/issues/${issueIdOrKey}` });
+			const result = await callBacklogApi(spaceConfig, {
+				path: `/issues/${issueIdOrKey}`,
+				query: { expand },
+			});
 			return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 		},
 	);
 
 	server.tool(
 		"get_issues",
-		"Returns list of issues matching the given criteria.",
+		"Returns list of issues matching the given criteria. " +
+			"Use parentChild to filter by hierarchy level (e.g., 5 for grandchild issues only, 7 for top level only) " +
+			"and parentIssueId to list the direct children of a parent issue.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
-			projectId: z.array(z.number()).optional().describe("Project IDs to filter."),
-			issueTypeId: z.array(z.number()).optional().describe("Issue type IDs."),
-			categoryId: z.array(z.number()).optional().describe("Category IDs."),
-			milestoneId: z.array(z.number()).optional().describe("Milestone IDs."),
-			statusId: z.array(z.number()).optional().describe("Status IDs."),
-			priorityId: z.array(z.number()).optional().describe("Priority IDs."),
-			assigneeId: z.array(z.number()).optional().describe("Assignee user IDs."),
-			createdUserId: z.array(z.number()).optional().describe("Creator user IDs."),
-			keyword: z.string().optional().describe("Search keyword."),
-			count: z.number().optional().describe("Number of issues to return (max 100)."),
-			offset: z.number().optional().describe("Offset for pagination."),
-			sort: z.string().optional().describe("Sort field."),
-			order: z.enum(["asc", "desc"]).optional().describe("Sort order."),
+			...issueFilterParams,
+			count: z.number().min(1).max(100).optional().describe("Number of issues to return (1-100, default 20)."),
+			offset: z.number().min(0).optional().describe("Offset for pagination."),
+			sort: z
+				.string()
+				.optional()
+				.describe(
+					"Sort field. One of: issueType, category, version, milestone, summary, status, priority, " +
+						"attachment, sharedFile, created, createdUser, updated, updatedUser, assignee, startDate, " +
+						"dueDate, estimatedHours, actualHours, childIssue, or customField_${id} for a custom field ID.",
+				),
+			order: z.enum(["asc", "desc"]).optional().describe("Sort order. Defaults to desc."),
+			expand: issueExpandParam,
 		},
 		async ({ space: spaceName, ...params }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
-			const query: Record<string, string | number | boolean | undefined> = {};
-			if (params.keyword) query.keyword = params.keyword;
-			if (params.count) query.count = params.count;
-			if (params.offset) query.offset = params.offset;
-			if (params.sort) query.sort = params.sort;
-			if (params.order) query.order = params.order;
-
-			// Array params need special handling via URL
-			const url = new URL(`https://${spaceConfig.domain}/api/v2/issues`);
-			url.searchParams.set("apiKey", requireApiKey(spaceConfig));
-			for (const [k, v] of Object.entries(query)) {
-				if (v !== undefined) url.searchParams.set(k, String(v));
-			}
-			if (params.projectId) params.projectId.forEach((id) => url.searchParams.append("projectId[]", String(id)));
-			if (params.issueTypeId) params.issueTypeId.forEach((id) => url.searchParams.append("issueTypeId[]", String(id)));
-			if (params.categoryId) params.categoryId.forEach((id) => url.searchParams.append("categoryId[]", String(id)));
-			if (params.milestoneId) params.milestoneId.forEach((id) => url.searchParams.append("milestoneId[]", String(id)));
-			if (params.statusId) params.statusId.forEach((id) => url.searchParams.append("statusId[]", String(id)));
-			if (params.priorityId) params.priorityId.forEach((id) => url.searchParams.append("priorityId[]", String(id)));
-			if (params.assigneeId) params.assigneeId.forEach((id) => url.searchParams.append("assigneeId[]", String(id)));
-			if (params.createdUserId) params.createdUserId.forEach((id) => url.searchParams.append("createdUserId[]", String(id)));
-
-			const response = await fetch(url.toString());
-			if (!response.ok) {
-				throw new Error(`Backlog API error (${response.status}): ${await response.text()}`);
-			}
-			const result = await response.json();
+			const result = await callBacklogApi(spaceConfig, {
+				path: "/issues",
+				query: issueFilterQuery(params),
+			});
 			return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 		},
 	);
 
 	server.tool(
 		"count_issues",
-		"Returns count of issues matching the given criteria.",
+		"Returns count of issues matching the given criteria. Accepts the same filters as get_issues.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
-			projectId: z.array(z.number()).optional().describe("Project IDs to filter."),
-			statusId: z.array(z.number()).optional().describe("Status IDs."),
-			keyword: z.string().optional().describe("Search keyword."),
+			...issueFilterParams,
 		},
-		async ({ space: spaceName, projectId, statusId, keyword }) => {
+		async ({ space: spaceName, ...params }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
-			const url = new URL(`https://${spaceConfig.domain}/api/v2/issues/count`);
-			url.searchParams.set("apiKey", requireApiKey(spaceConfig));
-			if (keyword) url.searchParams.set("keyword", keyword);
-			if (projectId) projectId.forEach((id) => url.searchParams.append("projectId[]", String(id)));
-			if (statusId) statusId.forEach((id) => url.searchParams.append("statusId[]", String(id)));
-
-			const response = await fetch(url.toString());
-			if (!response.ok) {
-				throw new Error(`Backlog API error (${response.status}): ${await response.text()}`);
-			}
-			const result = await response.json();
+			const result = await callBacklogApi(spaceConfig, {
+				path: "/issues/count",
+				query: issueFilterQuery(params),
+			});
 			return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 		},
 	);
@@ -124,27 +165,27 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 			actualHours: z.number().optional().describe("Actual hours."),
 			assigneeId: z.number().optional().describe("Assignee user ID."),
 			categoryId: z.array(z.number()).optional().describe("Category IDs."),
+			versionId: z.array(z.number()).optional().describe("Version IDs."),
 			milestoneId: z.array(z.number()).optional().describe("Milestone IDs."),
-			parentIssueId: z.number().optional().describe("Parent issue ID."),
+			parentIssueId: z
+				.number()
+				.optional()
+				.describe(
+					"Parent issue ID. Set to a child issue's ID to create a grandchild issue " +
+						"(requires grandchildIssueEnabled on the project and space).",
+				),
+			notifiedUserId: z.array(z.number()).optional().describe("User IDs to notify."),
+			attachmentId: z
+				.array(z.number())
+				.optional()
+				.describe("Attachment IDs returned by post_attachment."),
 		},
 		async ({ space: spaceName, ...params }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
-			const body: Record<string, unknown> = {
-				projectId: params.projectId,
-				summary: params.summary,
-				issueTypeId: params.issueTypeId,
-				priorityId: params.priorityId,
-			};
-			if (params.description) body.description = params.description;
-			if (params.startDate) body.startDate = params.startDate;
-			if (params.dueDate) body.dueDate = params.dueDate;
-			if (params.estimatedHours) body.estimatedHours = params.estimatedHours;
-			if (params.actualHours) body.actualHours = params.actualHours;
-			if (params.assigneeId) body.assigneeId = params.assigneeId;
-			if (params.categoryId) body.categoryId = params.categoryId;
-			if (params.milestoneId) body.milestoneId = params.milestoneId;
-			if (params.parentIssueId) body.parentIssueId = params.parentIssueId;
-
+			const body: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(params)) {
+				if (v !== undefined) body[k] = v;
+			}
 			const result = await callBacklogApiForm(spaceConfig, { path: "/issues", body });
 			return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 		},
@@ -157,14 +198,31 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
 			summary: z.string().optional().describe("New summary."),
+			parentIssueId: z
+				.number()
+				.optional()
+				.describe(
+					"New parent issue ID. Set to a child issue's ID to make this a grandchild issue " +
+						"(requires grandchildIssueEnabled on the project and space). Omit to leave unchanged.",
+				),
 			description: z.string().optional().describe("New description."),
 			statusId: z.number().optional().describe("New status ID."),
+			resolutionId: z.number().optional().describe("New resolution ID. Use get_resolutions to find IDs."),
 			priorityId: z.number().optional().describe("New priority ID."),
 			assigneeId: z.number().optional().describe("New assignee user ID."),
+			issueTypeId: z.number().optional().describe("New issue type ID."),
+			categoryId: z.array(z.number()).optional().describe("New category IDs."),
+			versionId: z.array(z.number()).optional().describe("New version IDs."),
+			milestoneId: z.array(z.number()).optional().describe("New milestone IDs."),
 			startDate: z.string().optional().describe("New start date (YYYY-MM-DD)."),
 			dueDate: z.string().optional().describe("New due date (YYYY-MM-DD)."),
 			estimatedHours: z.number().optional().describe("New estimated hours."),
 			actualHours: z.number().optional().describe("New actual hours."),
+			notifiedUserId: z.array(z.number()).optional().describe("User IDs to notify."),
+			attachmentId: z
+				.array(z.number())
+				.optional()
+				.describe("Attachment IDs returned by post_attachment."),
 			comment: z.string().optional().describe("Comment to add with the update."),
 		},
 		async ({ space: spaceName, issueIdOrKey, ...params }) => {
@@ -205,14 +263,18 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
-			count: z.number().optional().describe("Number of comments to return (max 100)."),
-			order: z.enum(["asc", "desc"]).optional().describe("Sort order."),
+			minId: z.number().optional().describe("Return comments with an ID greater than this."),
+			maxId: z.number().optional().describe("Return comments with an ID smaller than this."),
+			count: z.number().min(1).max(100).optional().describe("Number of comments to return (1-100, default 20)."),
+			order: z.enum(["asc", "desc"]).optional().describe("Sort order. Defaults to desc."),
 		},
-		async ({ space: spaceName, issueIdOrKey, count, order }) => {
+		async ({ space: spaceName, issueIdOrKey, count, order, minId, maxId }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			const query: Record<string, string | number | boolean | undefined> = {};
 			if (count) query.count = count;
 			if (order) query.order = order;
+			if (minId !== undefined) query.minId = minId;
+			if (maxId !== undefined) query.maxId = maxId;
 			const result = await callBacklogApi(spaceConfig, {
 				path: `/issues/${issueIdOrKey}/comments`,
 				query,
@@ -229,11 +291,16 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
 			content: z.string().describe("Comment content."),
 			notifiedUserId: z.array(z.number()).optional().describe("User IDs to notify."),
+			attachmentId: z
+				.array(z.number())
+				.optional()
+				.describe("Attachment IDs returned by post_attachment."),
 		},
-		async ({ space: spaceName, issueIdOrKey, content, notifiedUserId }) => {
+		async ({ space: spaceName, issueIdOrKey, content, notifiedUserId, attachmentId }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			const body: Record<string, unknown> = { content };
 			if (notifiedUserId) body.notifiedUserId = notifiedUserId;
+			if (attachmentId) body.attachmentId = attachmentId;
 			const result = await callBacklogApiForm(spaceConfig, {
 				path: `/issues/${issueIdOrKey}/comments`,
 				body,

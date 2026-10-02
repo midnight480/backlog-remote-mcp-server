@@ -61,14 +61,19 @@ export function registerProjectTools(server: McpServer, config: BacklogSpacesCon
 			key: z.string().describe("Project key (uppercase letters and underscores)."),
 			chartEnabled: z.boolean().optional().describe("Enable chart."),
 			subtaskingEnabled: z.boolean().optional().describe("Enable subtasking."),
+			grandchildIssueEnabled: z
+				.boolean()
+				.optional()
+				.describe("Enable grandchild issues (3-level issue hierarchy)."),
 			projectLeaderCanEditProjectLeader: z.boolean().optional(),
 			textFormattingRule: z.enum(["backlog", "markdown"]).optional(),
 		},
-		async ({ space: spaceName, name, key, chartEnabled, subtaskingEnabled, projectLeaderCanEditProjectLeader, textFormattingRule }) => {
+		async ({ space: spaceName, name, key, chartEnabled, subtaskingEnabled, grandchildIssueEnabled, projectLeaderCanEditProjectLeader, textFormattingRule }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			const body: Record<string, unknown> = { name, key };
 			if (chartEnabled !== undefined) body.chartEnabled = chartEnabled;
 			if (subtaskingEnabled !== undefined) body.subtaskingEnabled = subtaskingEnabled;
+			if (grandchildIssueEnabled !== undefined) body.grandchildIssueEnabled = grandchildIssueEnabled;
 			if (projectLeaderCanEditProjectLeader !== undefined) body.projectLeaderCanEditProjectLeader = projectLeaderCanEditProjectLeader;
 			if (textFormattingRule) body.textFormattingRule = textFormattingRule;
 			const result = await callBacklogApiForm(spaceConfig, { path: "/projects", body });
@@ -86,6 +91,10 @@ export function registerProjectTools(server: McpServer, config: BacklogSpacesCon
 			key: z.string().optional().describe("New project key."),
 			chartEnabled: z.boolean().optional(),
 			subtaskingEnabled: z.boolean().optional(),
+			grandchildIssueEnabled: z
+				.boolean()
+				.optional()
+				.describe("Enable grandchild issues (3-level issue hierarchy)."),
 			projectLeaderCanEditProjectLeader: z.boolean().optional(),
 			textFormattingRule: z.enum(["backlog", "markdown"]).optional(),
 			archived: z.boolean().optional(),

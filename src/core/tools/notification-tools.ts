@@ -19,14 +19,16 @@ export function registerNotificationTools(server: McpServer, config: BacklogSpac
 			order: z.enum(["asc", "desc"]).optional().describe("Sort order."),
 			minId: z.number().optional().describe("Minimum notification ID."),
 			maxId: z.number().optional().describe("Maximum notification ID."),
+			senderId: z.number().optional().describe("Filter by sender user ID."),
 		},
-		async ({ space: spaceName, count, order, minId, maxId }) => {
+		async ({ space: spaceName, count, order, minId, maxId, senderId }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			const query: Record<string, string | number | boolean | undefined> = {};
 			if (count) query.count = count;
 			if (order) query.order = order;
 			if (minId) query.minId = minId;
 			if (maxId) query.maxId = maxId;
+			if (senderId !== undefined) query.senderId = senderId;
 			const result = await callBacklogApi(spaceConfig, {
 				path: "/notifications",
 				query,
@@ -41,11 +43,16 @@ export function registerNotificationTools(server: McpServer, config: BacklogSpac
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			alreadyRead: z.boolean().optional().describe("Include already read notifications."),
+			resourceAlreadyRead: z
+				.boolean()
+				.optional()
+				.describe("Include notifications whose resource (issue, wiki, ...) has already been read."),
 		},
-		async ({ space: spaceName, alreadyRead }) => {
+		async ({ space: spaceName, alreadyRead, resourceAlreadyRead }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			const query: Record<string, string | number | boolean | undefined> = {};
 			if (alreadyRead !== undefined) query.alreadyRead = alreadyRead;
+			if (resourceAlreadyRead !== undefined) query.resourceAlreadyRead = resourceAlreadyRead;
 			const result = await callBacklogApi(spaceConfig, {
 				path: "/notifications/count",
 				query,
