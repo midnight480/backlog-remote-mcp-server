@@ -112,7 +112,14 @@ export function registerDocumentTools(server: McpServer, config: BacklogSpacesCo
 				.string()
 				.optional()
 				.describe("Deprecated alias of `content`. Sent as `content`; ignored when `content` is also given."),
-			emoji: z.string().optional().describe("Emoji icon shown alongside the document title."),
+			emoji: z
+				.string()
+				.optional()
+				.describe(
+					"Emoji icon shown alongside the document title (a single emoji character, e.g. 📝). " +
+						"Backlog accepts only emoji in its own set, which is not documented; others are rejected with " +
+						"400 msg.invalid.emoji (observed: 📝 accepted, 🧪 rejected). If that happens, retry without emoji.",
+				),
 			parentId: z
 				.string()
 				.optional()

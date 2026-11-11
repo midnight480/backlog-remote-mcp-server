@@ -13,6 +13,8 @@ Backlog を MCP (Model Context Protocol) 経由で操作するリモートサー
 - **OAuth 2.1 + PKCE** — 動的クライアント登録 (DCR) に対応し、MCP クライアントから直接接続できます
 - **メールアドレスによる認可** — 許可リストで利用者を限定します
 - **4 つのデプロイ先** — ビジネスロジックを共有したまま Cloudflare / AWS / Google Cloud / Azure のいずれでも動きます
+- **公式 API ドキュメントに沿ったツール** — [Backlog API v2 のドキュメント](https://developer.nulab.com/docs/backlog/) の全エンドポイントに対応し、パラメータ名・必須項目・必要な権限を揃えています
+- **デプロイせずに試せる** — 同じツール群を手元の Node.js で動かすスモークテストと stdio サーバがあり、クラウドの課金なしで動作を確かめられます ([詳細](#デプロイせずにツールを確かめる-oauth-なし))
 
 ## デプロイ先を選ぶ
 
@@ -250,7 +252,7 @@ flowchart TB
     subgraph shared["src/core &nbsp;&nbsp; 全実行環境で共通"]
         direction TB
         CS["create-server.ts<br/><i>ツール登録 + 許可リスト判定</i>"]
-        TOOLS["tools/ &nbsp;&nbsp; <i>MCP ツール 158 個</i>"]
+        TOOLS["tools/ &nbsp;&nbsp; <i>MCP ツール 159 個</i>"]
         BC["backlog-client.ts<br/><i>スペース振り分け + readOnly ガード</i>"]
         CS --> TOOLS --> BC
     end
@@ -316,7 +318,7 @@ GET 以外を拒否するため、個々のツール実装に穴があっても�
 src/
   core/                    全実行環境で共通。MCP SDK と zod にしか依存しない
     backlog-client.ts      Backlog API クライアント (readOnly ガードもここ)
-    tools/                 MCP ツール 158 個 (公開 API を網羅)
+    tools/                 MCP ツール 159 個 (公式 API ドキュメントの全エンドポイント)
     create-server.ts       MCP サーバの組み立てと認可判定
     credentials.ts         利用者ごとの Backlog キーの解析と重ね合わせ
     credential-envelope.ts キーをトークンに封じる処理 (保存しないための仕組み)
@@ -331,6 +333,8 @@ src/
     aws/                   Lambda 向けの配線 + DynamoDB / Secrets Manager アダプタ
     gcp/                   Cloud Run 向けの配線 + Firestore / Secret Manager アダプタ
     azure/                 Container Apps 向けの配線 + Cosmos DB / Key Vault アダプタ
+scripts/
+  local/                   デプロイせずに動かす stdio サーバとスモークテスト
 infra/
   aws/                     SAM テンプレートとパラメータ
   gcp/                     Terraform の設定
@@ -476,6 +480,8 @@ npx @modelcontextprotocol/inspector@latest
 
 Inspector画面で `https://<MCP_HOSTNAME>/mcp` を入力し、OAuth Settingsから認証フローを実行します。
 
+デプロイせずにツールだけを試す場合は、`npx @modelcontextprotocol/inspector npm run -s local:stdio` で手元の stdio サーバにつなげます ([詳細](#デプロイせずにツールを確かめる-oauth-なし))。
+
 ## 使い方
 
 ### スペースの指定
@@ -529,6 +535,12 @@ Inspector画面で `https://<MCP_HOSTNAME>/mcp` を入力し、OAuth Settingsか
 | Webhook | get_webhooks, get_webhook, add_webhook, update_webhook, delete_webhook |
 
 `add_*` / `update_*` / `delete_*` は書き込み系です。`readOnly: true` を設定したスペースに対してこれらを呼ぶと、Backlog APIへリクエストを送る前に拒否されます。`list_spaces` で各スペースの `readOnly` 状態を確認できます。
+
+各ツールのパラメータは [Backlog API v2 の公式ドキュメント](https://developer.nulab.com/docs/backlog/) に合わせています。管理者などの権限が必要なツールは、ツールの説明にその旨を書いています。
+
+- **公式ドキュメントに載っていないもの**: `add_user` / `update_user` / `delete_user`、`add_team` / `update_team` / `delete_team`、`update_pull_request` の `statusId` は、現在の公式ドキュメントにありません。既存の利用者のために残しており、ツールの説明にもその旨を書いています。
+- **Wiki**: 2026-07-14 以降、新しいスペースでは Wiki が使えず、新しいプロジェクトでも既定で無効です。新しく使う場合は Document 系のツールを使ってください。
+- **Document**: Backlog に Document の更新 API がまだ無いため、作成・取得・削除・タグの付け外しだけに対応しています。
 
 ## セキュリティ
 
@@ -588,6 +600,39 @@ npm run dev
 `wrangler dev` は KV をローカルでエミュレートするため、実際の
 Cloudflare リソースには触れません。
 
+### デプロイせずにツールを確かめる (OAuth なし)
+
+ツールの動作だけを確かめたいときは、OAuth / Cloudflare Access / `wrangler` を通さずに、
+本番と同じツール群 (`src/core/create-server.ts`) を手元の Node.js で動かせます。
+クラウドのリソースは使わないので課金は発生せず、通信先は Backlog API だけです。
+
+設定は次のどれかで渡します (上ほど優先)。API キーはリポジトリに置かないでください。
+
+- 環境変数 `BACKLOG_SPACES_CONFIG` (本番と同じ JSON)
+- 環境変数 `BACKLOG_DOMAIN` と `BACKLOG_API_KEY` (単一スペース。`BACKLOG_READ_ONLY=true` で読み取り専用)
+- `.dev.vars` の `BACKLOG_SPACES_CONFIG`
+
+**スモークテスト**: 主なツールを実際のスペースに対して呼び、OK / NG / WARN / SKIP を表示します。
+
+```bash
+export BACKLOG_DOMAIN=your-space.backlog.com BACKLOG_API_KEY=xxxx
+npm run smoke -- --project TEST            # 読み取りだけ
+npm run smoke -- --project TEST --write    # Document・課題・関連課題の作成と削除まで
+```
+
+`--write` はテスト用のプロジェクトで実行してください。作ったものは最後に削除します
+(`--keep` で残す)。削除は管理者権限が必要なものが多く、権限がなければ WARN になるので、
+そのときは画面から削除してください。応答の中身を見たいときは `--verbose` を付けます。
+
+**stdio サーバ**: 同じツール群を stdio の MCP サーバとして起動し、Claude Code や
+MCP Inspector から 1 本ずつ呼んで確かめられます。
+
+```bash
+claude mcp add backlog-local -e BACKLOG_DOMAIN=your-space.backlog.com -e BACKLOG_API_KEY=xxxx \
+  -- npm --prefix "$PWD" run -s local:stdio
+npx @modelcontextprotocol/inspector npm run -s local:stdio
+```
+
 ### 疎通確認
 
 OAuth から MCP ツール実行までを一括で確認できます。
@@ -645,6 +690,7 @@ npm test             # 下記のテストをまとめて実行
 | `npm run test:client-spaces` | クライアントが宣言したスペースと、ドメイン許可リストが SSRF を止めること |
 
 いずれも外部サービスに接続せず、DynamoDB・Backlog・上流 IdP はスタブに差し替えて動きます。
+ツールが実際の Backlog で動くかどうかは、[スモークテスト](#デプロイせずにツールを確かめる-oauth-なし) (`npm run smoke`) で確かめてください。
 
 ### 設定ファイル
 

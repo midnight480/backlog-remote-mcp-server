@@ -190,17 +190,16 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 	server.tool(
 		"get_issue",
 		"Returns information about a specific issue. " +
-			"`expand` is not listed on the Get Issue doc page (only on Get Issue List); kept for compatibility.",
+			"To get childIssueSummary (number of direct child issues), use get_issues with id and expand instead; " +
+			"the single-issue API does not return it.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key (e.g., PROJECT-1)."),
-			expand: issueExpandParam,
 		},
-		async ({ space: spaceName, issueIdOrKey, expand }) => {
+		async ({ space: spaceName, issueIdOrKey }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			const result = await callBacklogApi(spaceConfig, {
 				path: `/issues/${issueIdOrKey}`,
-				query: { expand },
 			});
 			return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 		},

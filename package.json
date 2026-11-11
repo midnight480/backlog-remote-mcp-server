@@ -10,6 +10,8 @@
 		"type-check": "tsc -p tsconfig.cloudflare.json && tsc -p tsconfig.aws.json && tsc -p tsconfig.gcp.json && tsc -p tsconfig.azure.json",
 		"dev:https": "wrangler dev --local-protocol https",
 		"check:local": "node scripts/local-mcp-check.mjs",
+		"local:stdio": "tsx scripts/local/stdio-server.mts",
+		"smoke": "tsx scripts/local/smoke.mts",
 		"cloudflare:deploy:dry-run": "node scripts/build-deploy-config.mjs && wrangler deploy --dry-run --config wrangler.deploy.json",
 		"cloudflare:secrets:push": "node scripts/build-deploy-config.mjs && node scripts/push-secrets.mjs",
 		"cloudflare:secrets:dry-run": "node scripts/push-secrets.mjs --dry-run",

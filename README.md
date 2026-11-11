@@ -13,6 +13,8 @@ English | [日本語](README_ja.md)
 - **OAuth 2.1 + PKCE** — supports Dynamic Client Registration (DCR), so MCP clients connect directly
 - **Email allowlist** — restrict who can use the server
 - **Four deployment targets** — the same business logic runs on Cloudflare, AWS, Google Cloud, or Azure
+- **Tools that follow the official API docs** — every endpoint in the [Backlog API v2 docs](https://developer.nulab.com/docs/backlog/) is covered, with matching parameter names, required fields and required roles
+- **Try it without deploying** — a smoke test and a stdio server run the same tools on local Node.js, so you can check behavior without any cloud billing ([details](#trying-the-tools-without-deploying-no-oauth))
 
 ## Choosing a deployment
 
@@ -250,7 +252,7 @@ flowchart TB
     subgraph shared["src/core &nbsp;&nbsp; every runtime"]
         direction TB
         CS["create-server.ts<br/><i>tool registration + email allowlist</i>"]
-        TOOLS["tools/ &nbsp;&nbsp; <i>158 MCP tools</i>"]
+        TOOLS["tools/ &nbsp;&nbsp; <i>159 MCP tools</i>"]
         BC["backlog-client.ts<br/><i>space routing + readOnly guard</i>"]
         CS --> TOOLS --> BC
     end
@@ -317,7 +319,7 @@ Business logic is separated from runtime wiring.
 src/
   core/                    Every runtime. Depends only on the MCP SDK and zod
     backlog-client.ts      Backlog API client (including the readOnly guard)
-    tools/                 158 MCP tools (full public API coverage)
+    tools/                 159 MCP tools (every endpoint in the official API docs)
     create-server.ts       MCP server assembly and authorization
     credentials.ts         Per-user Backlog keys: parsing and overlay
     credential-envelope.ts Sealing those keys into tokens, so none are stored
@@ -332,6 +334,8 @@ src/
     aws/                   Lambda wiring + DynamoDB / Secrets Manager adapters
     gcp/                   Cloud Run wiring + Firestore / Secret Manager adapters
     azure/                 Container Apps wiring + Cosmos DB / Key Vault adapters
+scripts/
+  local/                   stdio server and smoke test that run without deploying
 infra/
   aws/                     SAM template and parameters
   gcp/                     Terraform configuration
@@ -479,6 +483,8 @@ npx @modelcontextprotocol/inspector@latest
 
 Enter `https://<MCP_HOSTNAME>/mcp` in the inspector and complete the OAuth flow via OAuth Settings.
 
+To try the tools without deploying, run `npx @modelcontextprotocol/inspector npm run -s local:stdio` to connect to a local stdio server ([details](#trying-the-tools-without-deploying-no-oauth)).
+
 ## Usage
 
 ### Specifying a Space
@@ -532,6 +538,12 @@ All tools accept an optional `space` parameter:
 | Webhook | get_webhooks, get_webhook, add_webhook, update_webhook, delete_webhook |
 
 `add_*`, `update_*`, and `delete_*` are write operations. Calling them against a space configured with `readOnly: true` is rejected before any request reaches the Backlog API. Use `list_spaces` to see the `readOnly` status of each space.
+
+Tool parameters follow the [official Backlog API v2 docs](https://developer.nulab.com/docs/backlog/). Tools that need admin or other roles say so in their descriptions.
+
+- **Not in the official docs**: `add_user` / `update_user` / `delete_user`, `add_team` / `update_team` / `delete_team`, and `statusId` on `update_pull_request` are absent from the current docs. They are kept for existing users, and their descriptions say so.
+- **Wiki**: since 2026-07-14, new spaces cannot use Wiki and new projects have it disabled by default. Use the Document tools for new work.
+- **Document**: Backlog has no Document update API yet, so only create, read, delete and tag add/remove are supported.
 
 ## Security
 
@@ -592,6 +604,39 @@ npm run dev
 
 `wrangler dev` emulates KV locally, so it never touches real Cloudflare resources.
 
+### Trying the tools without deploying (no OAuth)
+
+To check tool behavior only, you can run the same tool set as production
+(`src/core/create-server.ts`) on local Node.js, skipping OAuth, Cloudflare Access and `wrangler`.
+No cloud resources are used, so nothing is billed; the only outbound traffic goes to the Backlog API.
+
+Provide the config in one of these ways (highest priority first). Never commit API keys.
+
+- `BACKLOG_SPACES_CONFIG` env var (same JSON as production)
+- `BACKLOG_DOMAIN` and `BACKLOG_API_KEY` env vars (single space; `BACKLOG_READ_ONLY=true` for read-only)
+- `BACKLOG_SPACES_CONFIG` in `.dev.vars`
+
+**Smoke test**: calls the main tools against a real space and prints OK / NG / WARN / SKIP.
+
+```bash
+export BACKLOG_DOMAIN=your-space.backlog.com BACKLOG_API_KEY=xxxx
+npm run smoke -- --project TEST            # read-only
+npm run smoke -- --project TEST --write    # also creates and deletes documents, issues and issue links
+```
+
+Run `--write` against a test project. Everything it creates is deleted at the end (`--keep` keeps it).
+Many deletes require admin rights; without them you get WARN and should delete the items in the UI.
+Add `--verbose` to print each tool response.
+
+**stdio server**: starts the same tools as a stdio MCP server so you can call them one by one
+from Claude Code or MCP Inspector.
+
+```bash
+claude mcp add backlog-local -e BACKLOG_DOMAIN=your-space.backlog.com -e BACKLOG_API_KEY=xxxx \
+  -- npm --prefix "$PWD" run -s local:stdio
+npx @modelcontextprotocol/inspector npm run -s local:stdio
+```
+
 ### Verifying the setup
 
 Run the full OAuth-to-tool-call check in one command:
@@ -649,6 +694,7 @@ npm test             # runs all suites below
 | `npm run test:client-spaces` | Client-declared spaces, and that the domain allowlist stops SSRF attempts |
 
 None of them reach external services — DynamoDB, Backlog and the upstream IdP are stubbed.
+To check that the tools work against a real Backlog space, use the [smoke test](#trying-the-tools-without-deploying-no-oauth) (`npm run smoke`).
 
 ### Configuration files
 
