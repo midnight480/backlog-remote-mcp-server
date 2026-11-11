@@ -12,10 +12,10 @@ import {
 export function registerNotificationTools(server: McpServer, config: BacklogSpacesConfig) {
 	server.tool(
 		"get_notifications",
-		"Returns list of notifications.",
+		"Returns the authenticated user's own notifications.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
-			count: z.number().optional().describe("Number of notifications to return (max 100)."),
+			count: z.number().min(1).max(100).optional().describe("Number of notifications to return (1-100, default 20)."),
 			order: z.enum(["asc", "desc"]).optional().describe("Sort order."),
 			minId: z.number().optional().describe("Minimum notification ID."),
 			maxId: z.number().optional().describe("Maximum notification ID."),
@@ -24,10 +24,10 @@ export function registerNotificationTools(server: McpServer, config: BacklogSpac
 		async ({ space: spaceName, count, order, minId, maxId, senderId }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			const query: Record<string, string | number | boolean | undefined> = {};
-			if (count) query.count = count;
+			if (count !== undefined) query.count = count;
 			if (order) query.order = order;
-			if (minId) query.minId = minId;
-			if (maxId) query.maxId = maxId;
+			if (minId !== undefined) query.minId = minId;
+			if (maxId !== undefined) query.maxId = maxId;
 			if (senderId !== undefined) query.senderId = senderId;
 			const result = await callBacklogApi(spaceConfig, {
 				path: "/notifications",
@@ -39,14 +39,19 @@ export function registerNotificationTools(server: McpServer, config: BacklogSpac
 
 	server.tool(
 		"get_notifications_count",
-		"Returns count of unread notifications.",
+		"Returns the number of notifications.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
-			alreadyRead: z.boolean().optional().describe("Include already read notifications."),
+			alreadyRead: z
+				.boolean()
+				.optional()
+				.describe(
+					"false = count notifications unread since the user last checked, true = count already read ones.",
+				),
 			resourceAlreadyRead: z
 				.boolean()
 				.optional()
-				.describe("Include notifications whose resource (issue, wiki, ...) has already been read."),
+				.describe("false = count unread notifications, true = count already read notifications."),
 		},
 		async ({ space: spaceName, alreadyRead, resourceAlreadyRead }) => {
 			const spaceConfig = resolveSpace(config, spaceName);

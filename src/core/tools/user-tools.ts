@@ -36,7 +36,8 @@ export function registerUserTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"add_user",
-		"Creates a user in the space. Requires space administrator privileges.",
+		"Creates a user in the space. Requires space administrator privileges." +
+			" Note: this endpoint is not documented in the current public Backlog API v2 docs.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			userId: z.string().describe("Login ID for the new user."),
@@ -59,7 +60,8 @@ export function registerUserTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"update_user",
-		"Updates a user. Requires space administrator privileges.",
+		"Updates a user. Requires space administrator privileges." +
+			" Note: this endpoint is not documented in the current public Backlog API v2 docs.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			userId: z.number().describe("User ID to update."),
@@ -86,7 +88,8 @@ export function registerUserTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"delete_user",
-		"Deletes a user. Requires space administrator privileges.",
+		"Deletes a user. Requires space administrator privileges." +
+			" Note: this endpoint is not documented in the current public Backlog API v2 docs.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			userId: z.number().describe("User ID to delete."),
@@ -116,7 +119,7 @@ export function registerUserTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_user_activities",
-		"Returns recent activities of a user.",
+		"Returns recent updates (activities) of a user (GET /users/:userId/activities).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			userId: z.number().describe("User ID."),
@@ -141,8 +144,8 @@ export function registerUserTools(server: McpServer, config: BacklogSpacesConfig
 			userId: z.number().describe("User ID."),
 			minId: z.number().optional().describe("Return stars with an ID greater than this."),
 			maxId: z.number().optional().describe("Return stars with an ID smaller than this."),
-			count: z.number().min(1).max(100).optional().describe("Number of results (1-100)."),
-			order: z.enum(["asc", "desc"]).optional().describe("Sort order."),
+			count: z.number().min(1).max(100).optional().describe("Number of results (1-100, default 20)."),
+			order: z.enum(["asc", "desc"]).optional().describe("Sort order. Defaults to desc."),
 		},
 		async ({ space: spaceName, userId, ...rest }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -162,8 +165,8 @@ export function registerUserTools(server: McpServer, config: BacklogSpacesConfig
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			userId: z.number().describe("User ID."),
-			since: z.string().optional().describe("Start date, yyyy-MM-dd."),
-			until: z.string().optional().describe("End date, yyyy-MM-dd."),
+			since: z.string().optional().describe("Count stars received after this date (yyyy-MM-dd)."),
+			until: z.string().optional().describe("Count stars received before this date (yyyy-MM-dd)."),
 		},
 		async ({ space: spaceName, userId, since, until }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -179,9 +182,9 @@ export function registerUserTools(server: McpServer, config: BacklogSpacesConfig
 	// 「最近の閲覧」系。いずれも認証ユーザー自身のものを対象にする。
 	const recentParams = {
 		space: z.string().optional().describe("Space name. Uses default if omitted."),
-		order: z.enum(["asc", "desc"]).optional().describe("Sort order."),
+		order: z.enum(["asc", "desc"]).optional().describe("Sort order. Defaults to desc."),
 		offset: z.number().min(0).optional().describe("Offset for pagination."),
-		count: z.number().min(1).max(100).optional().describe("Number of results (1-100)."),
+		count: z.number().min(1).max(100).optional().describe("Number of results (1-100, default 20)."),
 	};
 	const recentQuery = (rest: Record<string, unknown>) => {
 		const query: Record<string, BacklogQueryValue> = {};

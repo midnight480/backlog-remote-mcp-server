@@ -22,18 +22,20 @@ export function registerWatchingTools(server: McpServer, config: BacklogSpacesCo
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			userId: z.number().describe("User ID. Use get_myself to find your own ID."),
-			order: z.enum(["asc", "desc"]).optional().describe("Sort order."),
+			order: z.enum(["asc", "desc"]).optional().describe("Sort order. Defaults to desc."),
 			sort: z
 				.enum(["created", "updated", "issueUpdated"])
 				.optional()
-				.describe("Sort key."),
-			count: z.number().min(1).max(100).optional().describe("Number of results (1-100)."),
-			offset: z.number().min(0).optional().describe("Offset for pagination."),
+				.describe("Sort key. Defaults to issueUpdated."),
+			count: z.number().min(1).max(100).optional().describe("Number of results (1-100, default 20)."),
+			offset: z.number().min(0).optional().describe("Offset for pagination (default 0)."),
 			resourceAlreadyRead: z
 				.boolean()
 				.optional()
-				.describe("Filter by whether the watched resource has been read."),
-			issueId: z.array(z.number()).optional().describe("Filter by issue IDs."),
+				.describe(
+					"true = only watched issues already read, false = only unread ones. Omit to get all.",
+				),
+			issueId: z.array(z.number()).optional().describe("Filter by issue IDs (sent as issueId[])."),
 		},
 		async ({ space: spaceName, userId, ...rest }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -53,8 +55,17 @@ export function registerWatchingTools(server: McpServer, config: BacklogSpacesCo
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			userId: z.number().describe("User ID."),
-			resourceAlreadyRead: z.boolean().optional().describe("Filter by read state."),
-			alreadyRead: z.boolean().optional().describe("Filter by whether the watching itself is read."),
+			resourceAlreadyRead: z
+				.boolean()
+				.optional()
+				.describe("false = count unread watchings, true = count already read watchings."),
+			alreadyRead: z
+				.boolean()
+				.optional()
+				.describe(
+					"false = count watchings unread since the user last checked, true = count already read. " +
+						"If both alreadyRead and resourceAlreadyRead are set, resourceAlreadyRead is ignored.",
+				),
 		},
 		async ({ space: spaceName, userId, resourceAlreadyRead, alreadyRead }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -82,7 +93,7 @@ export function registerWatchingTools(server: McpServer, config: BacklogSpacesCo
 
 	server.tool(
 		"add_watching",
-		"Starts watching an issue.",
+		"Starts watching an issue (adds a watching for the authenticated user).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
@@ -98,19 +109,21 @@ export function registerWatchingTools(server: McpServer, config: BacklogSpacesCo
 
 	server.tool(
 		"update_watching",
-		"Updates the note of a watching.",
+		"Updates the note of your own watching.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			watchingId: z.number().describe("Watching ID."),
-			note: z.string().describe("New note."),
+			note: z.string().optional().describe("New note."),
 		},
 		async ({ space: spaceName, watchingId, note }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
+			const body: Record<string, unknown> = {};
+			if (note !== undefined) body.note = note;
 			return asText(
 				await callBacklogApiForm(spaceConfig, {
 					method: "PATCH",
 					path: `/watchings/${watchingId}`,
-					body: { note },
+					body,
 				}),
 			);
 		},
@@ -118,7 +131,7 @@ export function registerWatchingTools(server: McpServer, config: BacklogSpacesCo
 
 	server.tool(
 		"delete_watching",
-		"Stops watching (deletes a watching).",
+		"Stops watching (deletes your own watching).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			watchingId: z.number().describe("Watching ID."),

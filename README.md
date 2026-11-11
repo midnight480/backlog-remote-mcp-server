@@ -514,12 +514,22 @@ All tools accept an optional `space` parameter:
 
 | Category | Tools |
 |----------|-------|
-| Space | list_spaces, get_space, get_users, get_myself |
-| Project | get_project_list, get_project, add_project, update_project, delete_project, get_project_users |
-| Issue | get_issue, get_issues, count_issues, add_issue, update_issue, delete_issue, get_issue_comments, add_issue_comment, get_priorities, get_issue_types, get_categories, get_version_milestones, add_version_milestone, get_resolutions |
-| Wiki | get_wiki_pages, get_wikis_count, get_wiki, add_wiki |
-| Git | get_git_repositories, get_git_repository, get_pull_requests, get_pull_request, add_pull_request, update_pull_request, get_pull_request_comments, add_pull_request_comment |
+| Space | list_spaces, get_space, get_users, get_myself, get_space_activities, get_activity, get_space_icon, get_space_notification, update_space_notification, get_space_disk_usage, get_licence, get_rate_limit |
+| User | get_user, add_user, update_user, delete_user, get_user_icon, get_user_activities, get_user_stars, get_user_stars_count, get_recently_viewed_issues, add_recently_viewed_issue, get_recently_viewed_projects, get_recently_viewed_wikis, add_recently_viewed_wiki |
+| Team | get_teams, get_team, add_team, update_team, delete_team, get_team_icon, get_project_teams, add_project_team, delete_project_team |
+| Project | get_project_list, get_project, add_project, update_project, delete_project, get_project_users, get_project_icon, get_project_activities, add_project_user, delete_project_user, get_project_administrators, add_project_administrator, delete_project_administrator |
+| Status | get_project_statuses, add_project_status, update_project_status, delete_project_status, update_project_status_order |
+| Issue | get_issue, get_issues, count_issues, add_issue, update_issue, delete_issue, get_issue_comments, add_issue_comment, get_priorities, get_issue_types, get_categories, get_version_milestones, add_version_milestone, get_resolutions, count_issue_comments, get_issue_comment, update_issue_comment, delete_issue_comment, get_issue_comment_notifications, add_issue_comment_notification, get_issue_participants, get_issue_shared_files, link_issue_shared_files, unlink_issue_shared_file, get_related_issues, add_related_issue, remove_related_issue |
+| Issue settings | add_issue_type, update_issue_type, delete_issue_type, add_category, update_category, delete_category, update_version_milestone, delete_version_milestone |
+| Custom field | get_custom_fields, add_custom_field, update_custom_field, delete_custom_field, add_custom_field_item, update_custom_field_item, delete_custom_field_item |
+| File / Attachment | get_shared_files, get_shared_file, get_project_disk_usage, post_attachment, get_issue_attachments, get_issue_attachment, delete_issue_attachment |
+| Document | get_documents_count, get_documents, get_document_tree, get_document, add_document, delete_document, get_document_attachment, get_document_comments, add_document_tags, remove_document_tags |
+| Wiki | get_wiki_pages, get_wikis_count, get_wiki, add_wiki, update_wiki, delete_wiki, get_wiki_tags, get_wiki_history, get_wiki_stars, get_wiki_attachments, add_wiki_attachments, get_wiki_attachment, delete_wiki_attachment, get_wiki_shared_files, link_wiki_shared_files, unlink_wiki_shared_file |
+| Git / Pull request | get_git_repositories, get_git_repository, get_pull_requests, get_pull_request, add_pull_request, update_pull_request, get_pull_request_comments, add_pull_request_comment, count_pull_requests, count_pull_request_comments, update_pull_request_comment, get_pull_request_attachments, get_pull_request_attachment, delete_pull_request_attachment |
 | Notification | get_notifications, get_notifications_count, reset_unread_notification_count, mark_notification_as_read |
+| Watching | get_watchings, get_watchings_count, get_watching, add_watching, update_watching, delete_watching, mark_watching_as_read |
+| Star | add_star, delete_star |
+| Webhook | get_webhooks, get_webhook, add_webhook, update_webhook, delete_webhook |
 
 `add_*`, `update_*`, and `delete_*` are write operations. Calling them against a space configured with `readOnly: true` is rejected before any request reaches the Backlog API. Use `list_spaces` to see the `readOnly` status of each space.
 

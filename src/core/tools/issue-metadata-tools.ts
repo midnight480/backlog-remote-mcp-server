@@ -37,7 +37,7 @@ export function registerIssueMetadataTools(server: McpServer, config: BacklogSpa
 			projectIdOrKey: z.string().describe("Project ID or project key."),
 			name: z.string().describe("Issue type name."),
 			color: z.enum(ISSUE_TYPE_COLORS).describe("Issue type color. Must be a Backlog preset color."),
-			templateSummary: z.string().optional().describe("Template for the issue summary."),
+			templateSummary: z.string().optional().describe("Template for the issue subject (summary)."),
 			templateDescription: z.string().optional().describe("Template for the issue description."),
 		},
 		async ({ space: spaceName, projectIdOrKey, ...rest }) => {
@@ -121,20 +121,22 @@ export function registerIssueMetadataTools(server: McpServer, config: BacklogSpa
 
 	server.tool(
 		"update_category",
-		"Renames a category.",
+		"Updates (renames) a category.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
 			categoryId: z.number().describe("Category ID."),
-			name: z.string().describe("New category name."),
+			name: z.string().optional().describe("New category name."),
 		},
 		async ({ space: spaceName, projectIdOrKey, categoryId, name }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
+			const body: Record<string, unknown> = {};
+			if (name !== undefined) body.name = name;
 			return asText(
 				await callBacklogApiForm(spaceConfig, {
 					method: "PATCH",
 					path: `${proj(projectIdOrKey)}/categories/${categoryId}`,
-					body: { name },
+					body,
 				}),
 			);
 		},
@@ -166,7 +168,7 @@ export function registerIssueMetadataTools(server: McpServer, config: BacklogSpa
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
 			versionId: z.number().describe("Version/milestone ID."),
-			name: z.string().describe("Version name."),
+			name: z.string().describe("Version name. Required by the API even when unchanged."),
 			description: z.string().optional().describe("Description."),
 			startDate: z.string().optional().describe("Start date, yyyy-MM-dd."),
 			releaseDueDate: z.string().optional().describe("Release due date, yyyy-MM-dd."),

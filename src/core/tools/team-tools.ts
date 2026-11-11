@@ -20,12 +20,12 @@ const asText = (result: unknown) => ({
 export function registerTeamTools(server: McpServer, config: BacklogSpacesConfig) {
 	server.tool(
 		"get_teams",
-		"Returns the list of teams in the space.",
+		"Returns the list of teams in the space. Requires the Administrator or Project Administrator role.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
-			order: z.enum(["asc", "desc"]).optional().describe("Sort order."),
+			order: z.enum(["asc", "desc"]).optional().describe("Sort order. Defaults to desc."),
 			offset: z.number().min(0).optional().describe("Offset for pagination."),
-			count: z.number().min(1).max(100).optional().describe("Number of results (1-100)."),
+			count: z.number().min(1).max(100).optional().describe("Number of results (1-100, default 20)."),
 		},
 		async ({ space: spaceName, order, offset, count }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -39,7 +39,7 @@ export function registerTeamTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_team",
-		"Returns information about a specific team.",
+		"Returns information about a specific team. Requires the Administrator role.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			teamId: z.number().describe("Team ID."),
@@ -52,7 +52,7 @@ export function registerTeamTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"add_team",
-		"Creates a team.",
+		"Creates a team. Note: this endpoint is not documented in the current public Backlog API v2 docs.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			name: z.string().describe("Team name."),
@@ -68,7 +68,7 @@ export function registerTeamTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"update_team",
-		"Updates a team.",
+		"Updates a team. Note: this endpoint is not documented in the current public Backlog API v2 docs.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			teamId: z.number().describe("Team ID."),
@@ -95,7 +95,7 @@ export function registerTeamTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"delete_team",
-		"Deletes a team.",
+		"Deletes a team. Note: this endpoint is not documented in the current public Backlog API v2 docs.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			teamId: z.number().describe("Team ID."),
@@ -142,7 +142,7 @@ export function registerTeamTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"add_project_team",
-		"Assigns a team to a project.",
+		"Assigns a team to a project. Requires Administrator or Project Administrator.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
@@ -161,7 +161,7 @@ export function registerTeamTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"delete_project_team",
-		"Removes a team from a project.",
+		"Removes a team from a project. Requires Administrator or Project Administrator.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),

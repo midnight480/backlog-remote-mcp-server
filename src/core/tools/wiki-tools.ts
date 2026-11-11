@@ -20,7 +20,7 @@ const asText = (result: unknown) => ({
 export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig) {
 	server.tool(
 		"get_wiki_pages",
-		"Returns list of Wiki pages for a project.",
+		"Returns the list of Wiki pages (GET /wikis), filtered by project and optional keyword. Note: Backlog no longer offers Wiki in new spaces (from 2026-07-14) and it is off by default for new projects; prefer the document tools there.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
@@ -28,7 +28,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 		},
 		async ({ space: spaceName, projectIdOrKey, keyword }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
-			const query: Record<string, string | number | boolean | undefined> = {
+			const query: Record<string, BacklogQueryValue> = {
 				projectIdOrKey,
 			};
 			if (keyword) query.keyword = keyword;
@@ -39,7 +39,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_wikis_count",
-		"Returns count of wiki pages in a project.",
+		"Returns the number of Wiki pages in a project (GET /wikis/count).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
@@ -56,7 +56,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_wiki",
-		"Returns information about a specific wiki page.",
+		"Returns information about a specific Wiki page (GET /wikis/:wikiId), including its content.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
@@ -70,13 +70,13 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"add_wiki",
-		"Creates a new wiki page.",
+		"Creates a new Wiki page (POST /wikis). projectId, name and content are required. Note: Backlog no longer offers Wiki in new spaces (from 2026-07-14) and it is off by default for new projects; prefer the document tools there.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
-			projectId: z.number().describe("Project ID."),
-			name: z.string().describe("Wiki page name/title."),
-			content: z.string().describe("Wiki page content."),
-			mailNotify: z.boolean().optional().describe("Send email notification."),
+			projectId: z.number().describe("Numeric project ID. Use get_project to resolve a key."),
+			name: z.string().describe("Page name."),
+			content: z.string().describe("Page content."),
+			mailNotify: z.boolean().optional().describe("If true, notify by email."),
 		},
 		async ({ space: spaceName, projectId, name, content, mailNotify }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -89,13 +89,13 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"update_wiki",
-		"Updates a wiki page. Only the fields you pass are changed.",
+		"Updates a Wiki page (PATCH /wikis/:wikiId). Only the fields you pass are changed.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
 			name: z.string().optional().describe("New page name/title."),
 			content: z.string().optional().describe("New page content."),
-			mailNotify: z.boolean().optional().describe("Send email notification."),
+			mailNotify: z.boolean().optional().describe("If true, notify by email."),
 		},
 		async ({ space: spaceName, wikiId, ...rest }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -113,11 +113,11 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"delete_wiki",
-		"Deletes a wiki page.",
+		"Deletes a Wiki page (DELETE /wikis/:wikiId).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
-			mailNotify: z.boolean().optional().describe("Send email notification."),
+			mailNotify: z.boolean().optional().describe("If true, notify by email."),
 		},
 		async ({ space: spaceName, wikiId, mailNotify }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -135,7 +135,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_wiki_tags",
-		"Returns the list of wiki tags used in a project.",
+		"Returns the list of Wiki tags used in a project (GET /wikis/tags).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
@@ -150,14 +150,14 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_wiki_history",
-		"Returns the edit history of a wiki page.",
+		"Returns the edit history of a Wiki page (GET /wikis/:wikiId/history).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
 			minId: z.number().optional().describe("Return entries with an ID greater than this."),
 			maxId: z.number().optional().describe("Return entries with an ID smaller than this."),
-			count: z.number().min(1).max(100).optional().describe("Number of results (1-100)."),
-			order: z.enum(["asc", "desc"]).optional().describe("Sort order."),
+			count: z.number().min(1).max(100).optional().describe("Number of results (1-100, default 20)."),
+			order: z.enum(["asc", "desc"]).optional().describe("Sort order. Defaults to desc."),
 		},
 		async ({ space: spaceName, wikiId, ...rest }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -171,7 +171,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_wiki_stars",
-		"Returns the stars on a wiki page.",
+		"Returns the list of stars received on a Wiki page (GET /wikis/:wikiId/stars).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
@@ -184,7 +184,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_wiki_attachments",
-		"Returns the list of files attached to a wiki page.",
+		"Returns the list of files attached to a Wiki page (GET /wikis/:wikiId/attachments).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
@@ -197,7 +197,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"add_wiki_attachments",
-		"Attaches already-uploaded files to a wiki page. Upload them first with post_attachment.",
+		"Attaches already-uploaded files to a Wiki page (POST /wikis/:wikiId/attachments, sent as attachmentId[]). Upload them first with post_attachment.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
@@ -216,11 +216,11 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_wiki_attachment",
-		"Downloads a file attached to a wiki page. Fails for files over 4MB.",
+		"Downloads a file attached to a Wiki page (GET /wikis/:wikiId/attachments/:attachmentId). Fails for files over 4MB.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
-			attachmentId: z.number().describe("Attachment ID."),
+			attachmentId: z.number().describe("Attachment ID, from get_wiki_attachments."),
 		},
 		async ({ space: spaceName, wikiId, attachmentId }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -234,7 +234,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"delete_wiki_attachment",
-		"Removes a file attached to a wiki page.",
+		"Removes a file attached to a Wiki page (DELETE /wikis/:wikiId/attachments/:attachmentId).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
@@ -253,7 +253,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_wiki_shared_files",
-		"Returns the shared files linked to a wiki page.",
+		"Returns the shared files linked to a Wiki page (GET /wikis/:wikiId/sharedFiles).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
@@ -266,7 +266,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"link_wiki_shared_files",
-		"Links shared files to a wiki page.",
+		"Links shared files to a Wiki page (POST /wikis/:wikiId/sharedFiles, sent as fileId[]).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),
@@ -285,7 +285,7 @@ export function registerWikiTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"unlink_wiki_shared_file",
-		"Removes the link between a shared file and a wiki page. The file itself is not deleted.",
+		"Removes the link between a shared file and a Wiki page (DELETE /wikis/:wikiId/sharedFiles/:id). The file itself is not deleted.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			wikiId: z.number().describe("Wiki page ID."),

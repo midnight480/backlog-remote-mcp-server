@@ -19,16 +19,22 @@ const asText = (result: unknown) => ({
 
 /** アクティビティ種別 ID。space / project / user のアクティビティ取得で共通に使う。 */
 export const ACTIVITY_TYPE_HINT =
-	"Activity type IDs to filter by. 1=issue created, 2=issue updated, 3=issue commented, " +
-	"4=issue deleted, 5=wiki created, 6=wiki updated, 7=wiki deleted, 8=file added, " +
+	"Activity type IDs to filter by (1-51, sent as activityTypeId[]). 1=issue created, 2=issue updated, " +
+	"3=issue commented, 4=issue deleted, 5=wiki created, 6=wiki updated, 7=wiki deleted, 8=file added, " +
 	"9=file updated, 10=file deleted, 11=svn committed, 12=git pushed, 13=git repository created, " +
-	"14=issue multi-updated, 15=project user added, 16=project user removed, 17=comment notification, " +
-	"18=pull request added, 19=pull request updated, 20=pull request commented, 21=pull request merged. " +
-	"Omit to get every type.";
+	"14=issue multi-updated, 15=project user added, 16=project user deleted, 17=comment notification added, " +
+	"18=pull request added, 19=pull request updated, 20=comment added on pull request, 21=pull request deleted, " +
+	"22=milestone created, 23=milestone updated, 24=milestone deleted, 25=project group added, " +
+	"26=project group deleted, 34=status deleted, 35=issue dates multi-updated, 36=document created, " +
+	"37=document deleted, 38=document title updated, 39=document revision updated, 40=document commented, " +
+	"41=document comment updated, 42=document comment deleted, 43=document comment reply created, " +
+	"44=document comment reply updated, 45=document comment reply deleted, 46=document attachment added, " +
+	"47=issue multi-created, 48=document multi-created, 49=document mentioned, 50=related issue added, " +
+	"51=related issue deleted. Omit to get every type.";
 
 /** アクティビティ取得系で共通のページングパラメータ */
 export const activityParams = {
-	activityTypeId: z.array(z.number()).optional().describe(ACTIVITY_TYPE_HINT),
+	activityTypeId: z.array(z.number().int().min(1).max(51)).optional().describe(ACTIVITY_TYPE_HINT),
 	minId: z.number().optional().describe("Return activities with an ID greater than this."),
 	maxId: z.number().optional().describe("Return activities with an ID smaller than this."),
 	count: z.number().min(1).max(100).optional().describe("Number of results (1-100, default 20)."),
@@ -90,7 +96,8 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 	// Get users
 	server.tool(
 		"get_users",
-		"Returns list of users in the Backlog space.",
+		"Returns list of users in the Backlog space. " +
+			"Requires the Administrator or Project Administrator role.",
 		{
 			space: z
 				.string()
@@ -127,7 +134,7 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"get_space_activities",
-		"Returns recent activities in the space.",
+		"Returns recent updates (activities) in the space (GET /space/activities).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			...activityParams,
@@ -140,6 +147,19 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 					query: toActivityQuery(rest),
 				}),
 			);
+		},
+	);
+
+	server.tool(
+		"get_activity",
+		"Returns a single activity by its ID (GET /activities/:activityId).",
+		{
+			space: z.string().optional().describe("Space name. Uses default if omitted."),
+			activityId: z.number().describe("Activity ID."),
+		},
+		async ({ space: spaceName, activityId }) => {
+			const spaceConfig = resolveSpace(config, spaceName);
+			return asText(await callBacklogApi(spaceConfig, { path: `/activities/${activityId}` }));
 		},
 	);
 
@@ -169,10 +189,10 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"update_space_notification",
-		"Updates the space notification message shown to every member.",
+		"Updates the space notification message shown to every member. Requires the Administrator role.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
-			content: z.string().describe("Notification message."),
+			content: z.string().describe("Space notification content (required)."),
 		},
 		async ({ space: spaceName, content }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -188,7 +208,7 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"get_space_disk_usage",
-		"Returns the disk usage of the whole space, broken down by project.",
+		"Returns the disk usage of the whole space, broken down by project. Requires the Administrator role.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 		},
@@ -200,7 +220,7 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"get_licence",
-		"Returns the license information of the space.",
+		"Returns the licence information of the space.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 		},
@@ -212,7 +232,7 @@ export function registerSpaceTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"get_rate_limit",
-		"Returns the current API rate limit status.",
+		"Returns information about the API rate limit currently applied to you.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 		},

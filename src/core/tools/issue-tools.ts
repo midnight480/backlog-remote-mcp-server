@@ -62,7 +62,95 @@ const issueFilterParams = {
 	dueDateSince: z.string().optional().describe("Due date since (yyyy-MM-dd)."),
 	dueDateUntil: z.string().optional().describe("Due date until (yyyy-MM-dd)."),
 	keyword: z.string().optional().describe("Search keyword."),
+	customFields: z
+		.array(
+			z.discriminatedUnion("type", [
+				z.object({
+					type: z.literal("text"),
+					id: z.number().describe("Custom field ID."),
+					value: z.string().describe("Keyword. Sent as customField_{id}."),
+				}),
+				z.object({
+					type: z.literal("numeric"),
+					id: z.number().describe("Custom field ID."),
+					min: z.number().optional().describe("Minimum. Sent as customField_{id}_min."),
+					max: z.number().optional().describe("Maximum. Sent as customField_{id}_max."),
+				}),
+				z.object({
+					type: z.literal("date"),
+					id: z.number().describe("Custom field ID."),
+					min: z.string().optional().describe("Date from (yyyy-MM-dd). Sent as customField_{id}_min."),
+					max: z.string().optional().describe("Date to (yyyy-MM-dd). Sent as customField_{id}_max."),
+				}),
+				z.object({
+					type: z.literal("list"),
+					id: z.number().describe("Custom field ID."),
+					value: z.array(z.number()).min(1).describe("List item IDs. Sent as customField_{id}[]."),
+				}),
+			]),
+		)
+		.optional()
+		.describe(
+			"Filter by custom fields. Pick the type matching the field (text, numeric, date or list). " +
+				"Use get_custom_fields to find field IDs and list item IDs.",
+		),
 };
+
+type CustomFieldFilter = {
+	type: "text" | "numeric" | "date" | "list";
+	id: number;
+	value?: string | number[];
+	min?: number | string;
+	max?: number | string;
+};
+
+/** カスタム属性の検索条件を customField_{id} / _min / _max / [] 形式のクエリに展開する */
+function customFieldFilterQuery(filters: CustomFieldFilter[] | undefined): Record<string, BacklogQueryValue> {
+	const query: Record<string, BacklogQueryValue> = {};
+	for (const f of filters ?? []) {
+		const key = `customField_${f.id}`;
+		if (f.type === "text" || f.type === "list") {
+			// list は配列なので callBacklogApi が customField_{id}[] に展開する
+			if (f.value !== undefined) query[key] = f.value;
+		} else {
+			if (f.min !== undefined) query[`${key}_min`] = f.min;
+			if (f.max !== undefined) query[`${key}_max`] = f.max;
+		}
+	}
+	return query;
+}
+
+/** 課題の登録・更新で使うカスタム属性の値 (customField_{id}, customField_{id}_otherValue) */
+const customFieldValuesParam = z
+	.array(
+		z.object({
+			id: z.number().describe("Custom field ID."),
+			value: z
+				.union([z.string(), z.number(), z.array(z.number())])
+				.optional()
+				.describe(
+					"Value sent as customField_{id}. Text: string; numeric: number; date: yyyy-MM-dd; " +
+						"list: list item ID (an array for multiple-selection fields).",
+				),
+			otherValue: z
+				.string()
+				.optional()
+				.describe("Text for the 'other' option of a list field. Sent as customField_{id}_otherValue."),
+		}),
+	)
+	.optional()
+	.describe("Custom field values. Use get_custom_fields to find field IDs and list item IDs.");
+
+function customFieldValuesBody(
+	fields: Array<{ id: number; value?: string | number | number[]; otherValue?: string }> | undefined,
+): Record<string, unknown> {
+	const body: Record<string, unknown> = {};
+	for (const f of fields ?? []) {
+		if (f.value !== undefined) body[`customField_${f.id}`] = f.value;
+		if (f.otherValue !== undefined) body[`customField_${f.id}_otherValue`] = f.otherValue;
+	}
+	return body;
+}
 
 /** 課題の expand パラメータ。childIssueSummary で直下の子課題の件数を返す。 */
 const issueExpandParam = z
@@ -75,17 +163,34 @@ const issueExpandParam = z
 
 /** issueFilterParams で受けた値をクエリにそのまま詰め直す */
 function issueFilterQuery(params: Record<string, unknown>): Record<string, BacklogQueryValue> {
+	const { customFields, ...rest } = params;
 	const query: Record<string, BacklogQueryValue> = {};
-	for (const [k, v] of Object.entries(params)) {
+	for (const [k, v] of Object.entries(rest)) {
 		if (v !== undefined) query[k] = v as BacklogQueryValue;
 	}
-	return query;
+	return { ...query, ...customFieldFilterQuery(customFields as CustomFieldFilter[] | undefined) };
 }
+
+/** GET /issues と /issues/count の並び順・ページング (ドキュメント上は count にも存在する) */
+const issueListParams = {
+	count: z.number().int().min(1).max(100).optional().describe("Number of issues to return (1-100, default 20)."),
+	offset: z.number().int().min(0).optional().describe("Offset for pagination."),
+	sort: z
+		.string()
+		.optional()
+		.describe(
+			"Sort field. One of: issueType, category, version, milestone, summary, status, priority, " +
+				"attachment, sharedFile, created, createdUser, updated, updatedUser, assignee, startDate, " +
+				"dueDate, estimatedHours, actualHours, childIssue, or customField_${id} for a custom field ID.",
+		),
+	order: z.enum(["asc", "desc"]).optional().describe("Sort order. Defaults to desc."),
+};
 
 export function registerIssueTools(server: McpServer, config: BacklogSpacesConfig) {
 	server.tool(
 		"get_issue",
-		"Returns information about a specific issue.",
+		"Returns information about a specific issue. " +
+			"`expand` is not listed on the Get Issue doc page (only on Get Issue List); kept for compatibility.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key (e.g., PROJECT-1)."),
@@ -109,17 +214,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			...issueFilterParams,
-			count: z.number().min(1).max(100).optional().describe("Number of issues to return (1-100, default 20)."),
-			offset: z.number().min(0).optional().describe("Offset for pagination."),
-			sort: z
-				.string()
-				.optional()
-				.describe(
-					"Sort field. One of: issueType, category, version, milestone, summary, status, priority, " +
-						"attachment, sharedFile, created, createdUser, updated, updatedUser, assignee, startDate, " +
-						"dueDate, estimatedHours, actualHours, childIssue, or customField_${id} for a custom field ID.",
-				),
-			order: z.enum(["asc", "desc"]).optional().describe("Sort order. Defaults to desc."),
+			...issueListParams,
 			expand: issueExpandParam,
 		},
 		async ({ space: spaceName, ...params }) => {
@@ -138,6 +233,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			...issueFilterParams,
+			...issueListParams,
 		},
 		async ({ space: spaceName, ...params }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -151,14 +247,14 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"add_issue",
-		"Creates a new issue in the specified project.",
+		"Creates a new issue in the specified project. Available to users restricted to 'add issue only' as well.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectId: z.number().describe("Project ID."),
 			summary: z.string().describe("Issue summary/title."),
 			issueTypeId: z.number().describe("Issue type ID."),
 			priorityId: z.number().describe("Priority ID."),
-			description: z.string().optional().describe("Issue description."),
+			description: z.string().optional().describe("Issue description. Mention notation is available."),
 			startDate: z.string().optional().describe("Start date (YYYY-MM-DD)."),
 			dueDate: z.string().optional().describe("Due date (YYYY-MM-DD)."),
 			estimatedHours: z.number().optional().describe("Estimated hours."),
@@ -179,13 +275,15 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 				.array(z.number())
 				.optional()
 				.describe("Attachment IDs returned by post_attachment."),
+			customFields: customFieldValuesParam,
 		},
-		async ({ space: spaceName, ...params }) => {
+		async ({ space: spaceName, customFields, ...params }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			const body: Record<string, unknown> = {};
 			for (const [k, v] of Object.entries(params)) {
 				if (v !== undefined) body[k] = v;
 			}
+			Object.assign(body, customFieldValuesBody(customFields));
 			const result = await callBacklogApiForm(spaceConfig, { path: "/issues", body });
 			return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 		},
@@ -193,7 +291,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"update_issue",
-		"Updates an existing issue.",
+		"Updates an existing issue. Not available to users restricted to 'add issue only'.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
@@ -205,7 +303,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 					"New parent issue ID. Set to a child issue's ID to make this a grandchild issue " +
 						"(requires grandchildIssueEnabled on the project and space). Omit to leave unchanged.",
 				),
-			description: z.string().optional().describe("New description."),
+			description: z.string().optional().describe("New description. Mention notation is available."),
 			statusId: z.number().optional().describe("New status ID."),
 			resolutionId: z.number().optional().describe("New resolution ID. Use get_resolutions to find IDs."),
 			priorityId: z.number().optional().describe("New priority ID."),
@@ -223,14 +321,16 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 				.array(z.number())
 				.optional()
 				.describe("Attachment IDs returned by post_attachment."),
-			comment: z.string().optional().describe("Comment to add with the update."),
+			comment: z.string().optional().describe("Comment to add with the update. Mention notation is available."),
+			customFields: customFieldValuesParam,
 		},
-		async ({ space: spaceName, issueIdOrKey, ...params }) => {
+		async ({ space: spaceName, issueIdOrKey, customFields, ...params }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			const body: Record<string, unknown> = {};
 			for (const [k, v] of Object.entries(params)) {
 				if (v !== undefined) body[k] = v;
 			}
+			Object.assign(body, customFieldValuesBody(customFields));
 			const result = await callBacklogApiForm(spaceConfig, {
 				method: "PATCH",
 				path: `/issues/${issueIdOrKey}`,
@@ -242,7 +342,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"delete_issue",
-		"Deletes an issue.",
+		"Deletes an issue. Requires the Administrator role or project administrator rights.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
@@ -289,7 +389,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
-			content: z.string().describe("Comment content."),
+			content: z.string().describe("Comment content. Mention notation is available."),
 			notifiedUserId: z.array(z.number()).optional().describe("User IDs to notify."),
 			attachmentId: z
 				.array(z.number())
@@ -376,14 +476,14 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"add_version_milestone",
-		"Creates a new version milestone for a project.",
+		"Creates a new version milestone for a project. Not available to users restricted to 'add issue only'.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
 			name: z.string().describe("Version/milestone name."),
-			description: z.string().optional(),
-			startDate: z.string().optional().describe("Start date (YYYY-MM-DD)."),
-			releaseDueDate: z.string().optional().describe("Release due date (YYYY-MM-DD)."),
+			description: z.string().optional().describe("Version/milestone description."),
+			startDate: z.string().optional().describe("Start date (yyyy-MM-dd)."),
+			releaseDueDate: z.string().optional().describe("Release due (end) date (yyyy-MM-dd)."),
 		},
 		async ({ space: spaceName, projectIdOrKey, ...params }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -450,12 +550,12 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"update_issue_comment",
-		"Updates the content of a comment on an issue.",
+		"Updates the content of a comment on an issue. Only the comment's author can update it.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
 			commentId: z.number().describe("Comment ID."),
-			content: z.string().describe("New comment content."),
+			content: z.string().describe("New comment content. Mention notation is available."),
 		},
 		async ({ space: spaceName, issueIdOrKey, commentId, content }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -471,7 +571,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"delete_issue_comment",
-		"Deletes a comment on an issue.",
+		"Deletes a comment on an issue. Only the comment's author can delete it.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
@@ -508,7 +608,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"add_issue_comment_notification",
-		"Notifies users about an existing comment.",
+		"Notifies users about an existing comment. Only the user who added the comment can add notifications.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
@@ -558,7 +658,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"link_issue_shared_files",
-		"Links shared files to an issue.",
+		"Links shared files to an issue. Not available to users restricted to 'add issue only'.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
@@ -596,7 +696,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"get_related_issues",
-		"Returns the issues related to an issue.",
+		"Returns the issues related to an issue. Each item has a type field for the relation type (currently always RELATES).",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
@@ -611,18 +711,19 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"add_related_issue",
-		"Relates another issue to this issue.",
+		"Relates another issue to this issue. Up to 50 related issues per issue. " +
+			"Relating an already related issue, or the issue itself, is not an error and returns the issue unchanged.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
-			relatedIssueId: z.number().describe("Numeric ID of the issue to relate."),
+			targetIssueId: z.number().describe("Numeric ID of the issue to relate. Must be an issue you can view."),
 		},
-		async ({ space: spaceName, issueIdOrKey, relatedIssueId }) => {
+		async ({ space: spaceName, issueIdOrKey, targetIssueId }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
 			return asText(
 				await callBacklogApiForm(spaceConfig, {
 					path: `${issuePath(issueIdOrKey)}/relatedIssues`,
-					body: { relatedIssueId },
+					body: { targetIssueId },
 				}),
 			);
 		},
@@ -630,7 +731,7 @@ export function registerIssueTools(server: McpServer, config: BacklogSpacesConfi
 
 	server.tool(
 		"remove_related_issue",
-		"Removes a relation between two issues.",
+		"Removes a relation between two issues. Returns an error if no such relation exists.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
