@@ -13,6 +13,8 @@ English | [日本語](README_ja.md)
 - **OAuth 2.1 + PKCE** — supports Dynamic Client Registration (DCR), so MCP clients connect directly
 - **Email allowlist** — restrict who can use the server
 - **Four deployment targets** — the same business logic runs on Cloudflare, AWS, Google Cloud, or Azure
+- **Tools that follow the official API docs** — every endpoint in the [Backlog API v2 docs](https://developer.nulab.com/docs/backlog/) is covered, with matching parameter names, required fields and required roles
+- **Try it without deploying** — a smoke test and a stdio server run the same tools on local Node.js, so you can check behavior without any cloud billing ([details](#trying-the-tools-without-deploying-no-oauth))
 
 ## Choosing a deployment
 
@@ -250,7 +252,7 @@ flowchart TB
     subgraph shared["src/core &nbsp;&nbsp; every runtime"]
         direction TB
         CS["create-server.ts<br/><i>tool registration + email allowlist</i>"]
-        TOOLS["tools/ &nbsp;&nbsp; <i>158 MCP tools</i>"]
+        TOOLS["tools/ &nbsp;&nbsp; <i>159 MCP tools</i>"]
         BC["backlog-client.ts<br/><i>space routing + readOnly guard</i>"]
         CS --> TOOLS --> BC
     end
@@ -317,7 +319,7 @@ Business logic is separated from runtime wiring.
 src/
   core/                    Every runtime. Depends only on the MCP SDK and zod
     backlog-client.ts      Backlog API client (including the readOnly guard)
-    tools/                 158 MCP tools (full public API coverage)
+    tools/                 159 MCP tools (every endpoint in the official API docs)
     create-server.ts       MCP server assembly and authorization
     credentials.ts         Per-user Backlog keys: parsing and overlay
     credential-envelope.ts Sealing those keys into tokens, so none are stored
@@ -332,6 +334,8 @@ src/
     aws/                   Lambda wiring + DynamoDB / Secrets Manager adapters
     gcp/                   Cloud Run wiring + Firestore / Secret Manager adapters
     azure/                 Container Apps wiring + Cosmos DB / Key Vault adapters
+scripts/
+  local/                   stdio server and smoke test that run without deploying
 infra/
   aws/                     SAM template and parameters
   gcp/                     Terraform configuration
@@ -479,6 +483,8 @@ npx @modelcontextprotocol/inspector@latest
 
 Enter `https://<MCP_HOSTNAME>/mcp` in the inspector and complete the OAuth flow via OAuth Settings.
 
+To try the tools without deploying, run `npx @modelcontextprotocol/inspector npm run -s local:stdio` to connect to a local stdio server ([details](#trying-the-tools-without-deploying-no-oauth)).
+
 ## Usage
 
 ### Specifying a Space
@@ -514,14 +520,30 @@ All tools accept an optional `space` parameter:
 
 | Category | Tools |
 |----------|-------|
-| Space | list_spaces, get_space, get_users, get_myself |
-| Project | get_project_list, get_project, add_project, update_project, delete_project, get_project_users |
-| Issue | get_issue, get_issues, count_issues, add_issue, update_issue, delete_issue, get_issue_comments, add_issue_comment, get_priorities, get_issue_types, get_categories, get_version_milestones, add_version_milestone, get_resolutions |
-| Wiki | get_wiki_pages, get_wikis_count, get_wiki, add_wiki |
-| Git | get_git_repositories, get_git_repository, get_pull_requests, get_pull_request, add_pull_request, update_pull_request, get_pull_request_comments, add_pull_request_comment |
+| Space | list_spaces, get_space, get_users, get_myself, get_space_activities, get_activity, get_space_icon, get_space_notification, update_space_notification, get_space_disk_usage, get_licence, get_rate_limit |
+| User | get_user, add_user, update_user, delete_user, get_user_icon, get_user_activities, get_user_stars, get_user_stars_count, get_recently_viewed_issues, add_recently_viewed_issue, get_recently_viewed_projects, get_recently_viewed_wikis, add_recently_viewed_wiki |
+| Team | get_teams, get_team, add_team, update_team, delete_team, get_team_icon, get_project_teams, add_project_team, delete_project_team |
+| Project | get_project_list, get_project, add_project, update_project, delete_project, get_project_users, get_project_icon, get_project_activities, add_project_user, delete_project_user, get_project_administrators, add_project_administrator, delete_project_administrator |
+| Status | get_project_statuses, add_project_status, update_project_status, delete_project_status, update_project_status_order |
+| Issue | get_issue, get_issues, count_issues, add_issue, update_issue, delete_issue, get_issue_comments, add_issue_comment, get_priorities, get_issue_types, get_categories, get_version_milestones, add_version_milestone, get_resolutions, count_issue_comments, get_issue_comment, update_issue_comment, delete_issue_comment, get_issue_comment_notifications, add_issue_comment_notification, get_issue_participants, get_issue_shared_files, link_issue_shared_files, unlink_issue_shared_file, get_related_issues, add_related_issue, remove_related_issue |
+| Issue settings | add_issue_type, update_issue_type, delete_issue_type, add_category, update_category, delete_category, update_version_milestone, delete_version_milestone |
+| Custom field | get_custom_fields, add_custom_field, update_custom_field, delete_custom_field, add_custom_field_item, update_custom_field_item, delete_custom_field_item |
+| File / Attachment | get_shared_files, get_shared_file, get_project_disk_usage, post_attachment, get_issue_attachments, get_issue_attachment, delete_issue_attachment |
+| Document | get_documents_count, get_documents, get_document_tree, get_document, add_document, delete_document, get_document_attachment, get_document_comments, add_document_tags, remove_document_tags |
+| Wiki | get_wiki_pages, get_wikis_count, get_wiki, add_wiki, update_wiki, delete_wiki, get_wiki_tags, get_wiki_history, get_wiki_stars, get_wiki_attachments, add_wiki_attachments, get_wiki_attachment, delete_wiki_attachment, get_wiki_shared_files, link_wiki_shared_files, unlink_wiki_shared_file |
+| Git / Pull request | get_git_repositories, get_git_repository, get_pull_requests, get_pull_request, add_pull_request, update_pull_request, get_pull_request_comments, add_pull_request_comment, count_pull_requests, count_pull_request_comments, update_pull_request_comment, get_pull_request_attachments, get_pull_request_attachment, delete_pull_request_attachment |
 | Notification | get_notifications, get_notifications_count, reset_unread_notification_count, mark_notification_as_read |
+| Watching | get_watchings, get_watchings_count, get_watching, add_watching, update_watching, delete_watching, mark_watching_as_read |
+| Star | add_star, delete_star |
+| Webhook | get_webhooks, get_webhook, add_webhook, update_webhook, delete_webhook |
 
 `add_*`, `update_*`, and `delete_*` are write operations. Calling them against a space configured with `readOnly: true` is rejected before any request reaches the Backlog API. Use `list_spaces` to see the `readOnly` status of each space.
+
+Tool parameters follow the [official Backlog API v2 docs](https://developer.nulab.com/docs/backlog/). Tools that need admin or other roles say so in their descriptions.
+
+- **Not in the official docs**: `add_user` / `update_user` / `delete_user`, `add_team` / `update_team` / `delete_team`, and `statusId` on `update_pull_request` are absent from the current docs. They are kept for existing users, and their descriptions say so.
+- **Wiki**: since 2026-07-14, new spaces cannot use Wiki and new projects have it disabled by default. Use the Document tools for new work.
+- **Document**: Backlog has no Document update API yet, so only create, read, delete and tag add/remove are supported.
 
 ## Security
 
@@ -582,6 +604,39 @@ npm run dev
 
 `wrangler dev` emulates KV locally, so it never touches real Cloudflare resources.
 
+### Trying the tools without deploying (no OAuth)
+
+To check tool behavior only, you can run the same tool set as production
+(`src/core/create-server.ts`) on local Node.js, skipping OAuth, Cloudflare Access and `wrangler`.
+No cloud resources are used, so nothing is billed; the only outbound traffic goes to the Backlog API.
+
+Provide the config in one of these ways (highest priority first). Never commit API keys.
+
+- `BACKLOG_SPACES_CONFIG` env var (same JSON as production)
+- `BACKLOG_DOMAIN` and `BACKLOG_API_KEY` env vars (single space; `BACKLOG_READ_ONLY=true` for read-only)
+- `BACKLOG_SPACES_CONFIG` in `.dev.vars`
+
+**Smoke test**: calls the main tools against a real space and prints OK / NG / WARN / SKIP.
+
+```bash
+export BACKLOG_DOMAIN=your-space.backlog.com BACKLOG_API_KEY=xxxx
+npm run smoke -- --project TEST            # read-only
+npm run smoke -- --project TEST --write    # also creates and deletes documents, issues and issue links
+```
+
+Run `--write` against a test project. Everything it creates is deleted at the end (`--keep` keeps it).
+Many deletes require admin rights; without them you get WARN and should delete the items in the UI.
+Add `--verbose` to print each tool response.
+
+**stdio server**: starts the same tools as a stdio MCP server so you can call them one by one
+from Claude Code or MCP Inspector.
+
+```bash
+claude mcp add backlog-local -e BACKLOG_DOMAIN=your-space.backlog.com -e BACKLOG_API_KEY=xxxx \
+  -- npm --prefix "$PWD" run -s local:stdio
+npx @modelcontextprotocol/inspector npm run -s local:stdio
+```
+
 ### Verifying the setup
 
 Run the full OAuth-to-tool-call check in one command:
@@ -639,6 +694,7 @@ npm test             # runs all suites below
 | `npm run test:client-spaces` | Client-declared spaces, and that the domain allowlist stops SSRF attempts |
 
 None of them reach external services — DynamoDB, Backlog and the upstream IdP are stubbed.
+To check that the tools work against a real Backlog space, use the [smoke test](#trying-the-tools-without-deploying-no-oauth) (`npm run smoke`).
 
 ### Configuration files
 

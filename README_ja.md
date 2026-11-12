@@ -13,6 +13,8 @@ Backlog を MCP (Model Context Protocol) 経由で操作するリモートサー
 - **OAuth 2.1 + PKCE** — 動的クライアント登録 (DCR) に対応し、MCP クライアントから直接接続できます
 - **メールアドレスによる認可** — 許可リストで利用者を限定します
 - **4 つのデプロイ先** — ビジネスロジックを共有したまま Cloudflare / AWS / Google Cloud / Azure のいずれでも動きます
+- **公式 API ドキュメントに沿ったツール** — [Backlog API v2 のドキュメント](https://developer.nulab.com/docs/backlog/) の全エンドポイントに対応し、パラメータ名・必須項目・必要な権限を揃えています
+- **デプロイせずに試せる** — 同じツール群を手元の Node.js で動かすスモークテストと stdio サーバがあり、クラウドの課金なしで動作を確かめられます ([詳細](#デプロイせずにツールを確かめる-oauth-なし))
 
 ## デプロイ先を選ぶ
 
@@ -250,7 +252,7 @@ flowchart TB
     subgraph shared["src/core &nbsp;&nbsp; 全実行環境で共通"]
         direction TB
         CS["create-server.ts<br/><i>ツール登録 + 許可リスト判定</i>"]
-        TOOLS["tools/ &nbsp;&nbsp; <i>MCP ツール 158 個</i>"]
+        TOOLS["tools/ &nbsp;&nbsp; <i>MCP ツール 159 個</i>"]
         BC["backlog-client.ts<br/><i>スペース振り分け + readOnly ガード</i>"]
         CS --> TOOLS --> BC
     end
@@ -316,7 +318,7 @@ GET 以外を拒否するため、個々のツール実装に穴があっても�
 src/
   core/                    全実行環境で共通。MCP SDK と zod にしか依存しない
     backlog-client.ts      Backlog API クライアント (readOnly ガードもここ)
-    tools/                 MCP ツール 158 個 (公開 API を網羅)
+    tools/                 MCP ツール 159 個 (公式 API ドキュメントの全エンドポイント)
     create-server.ts       MCP サーバの組み立てと認可判定
     credentials.ts         利用者ごとの Backlog キーの解析と重ね合わせ
     credential-envelope.ts キーをトークンに封じる処理 (保存しないための仕組み)
@@ -331,6 +333,8 @@ src/
     aws/                   Lambda 向けの配線 + DynamoDB / Secrets Manager アダプタ
     gcp/                   Cloud Run 向けの配線 + Firestore / Secret Manager アダプタ
     azure/                 Container Apps 向けの配線 + Cosmos DB / Key Vault アダプタ
+scripts/
+  local/                   デプロイせずに動かす stdio サーバとスモークテスト
 infra/
   aws/                     SAM テンプレートとパラメータ
   gcp/                     Terraform の設定
@@ -476,6 +480,8 @@ npx @modelcontextprotocol/inspector@latest
 
 Inspector画面で `https://<MCP_HOSTNAME>/mcp` を入力し、OAuth Settingsから認証フローを実行します。
 
+デプロイせずにツールだけを試す場合は、`npx @modelcontextprotocol/inspector npm run -s local:stdio` で手元の stdio サーバにつなげます ([詳細](#デプロイせずにツールを確かめる-oauth-なし))。
+
 ## 使い方
 
 ### スペースの指定
@@ -511,14 +517,30 @@ Inspector画面で `https://<MCP_HOSTNAME>/mcp` を入力し、OAuth Settingsか
 
 | カテゴリ | ツール |
 |---------|--------|
-| Space | list_spaces, get_space, get_users, get_myself |
-| Project | get_project_list, get_project, add_project, update_project, delete_project, get_project_users |
-| Issue | get_issue, get_issues, count_issues, add_issue, update_issue, delete_issue, get_issue_comments, add_issue_comment, get_priorities, get_issue_types, get_categories, get_version_milestones, add_version_milestone, get_resolutions |
-| Wiki | get_wiki_pages, get_wikis_count, get_wiki, add_wiki |
-| Git | get_git_repositories, get_git_repository, get_pull_requests, get_pull_request, add_pull_request, update_pull_request, get_pull_request_comments, add_pull_request_comment |
+| Space | list_spaces, get_space, get_users, get_myself, get_space_activities, get_activity, get_space_icon, get_space_notification, update_space_notification, get_space_disk_usage, get_licence, get_rate_limit |
+| User | get_user, add_user, update_user, delete_user, get_user_icon, get_user_activities, get_user_stars, get_user_stars_count, get_recently_viewed_issues, add_recently_viewed_issue, get_recently_viewed_projects, get_recently_viewed_wikis, add_recently_viewed_wiki |
+| Team | get_teams, get_team, add_team, update_team, delete_team, get_team_icon, get_project_teams, add_project_team, delete_project_team |
+| Project | get_project_list, get_project, add_project, update_project, delete_project, get_project_users, get_project_icon, get_project_activities, add_project_user, delete_project_user, get_project_administrators, add_project_administrator, delete_project_administrator |
+| Status | get_project_statuses, add_project_status, update_project_status, delete_project_status, update_project_status_order |
+| Issue | get_issue, get_issues, count_issues, add_issue, update_issue, delete_issue, get_issue_comments, add_issue_comment, get_priorities, get_issue_types, get_categories, get_version_milestones, add_version_milestone, get_resolutions, count_issue_comments, get_issue_comment, update_issue_comment, delete_issue_comment, get_issue_comment_notifications, add_issue_comment_notification, get_issue_participants, get_issue_shared_files, link_issue_shared_files, unlink_issue_shared_file, get_related_issues, add_related_issue, remove_related_issue |
+| Issue settings | add_issue_type, update_issue_type, delete_issue_type, add_category, update_category, delete_category, update_version_milestone, delete_version_milestone |
+| Custom field | get_custom_fields, add_custom_field, update_custom_field, delete_custom_field, add_custom_field_item, update_custom_field_item, delete_custom_field_item |
+| File / Attachment | get_shared_files, get_shared_file, get_project_disk_usage, post_attachment, get_issue_attachments, get_issue_attachment, delete_issue_attachment |
+| Document | get_documents_count, get_documents, get_document_tree, get_document, add_document, delete_document, get_document_attachment, get_document_comments, add_document_tags, remove_document_tags |
+| Wiki | get_wiki_pages, get_wikis_count, get_wiki, add_wiki, update_wiki, delete_wiki, get_wiki_tags, get_wiki_history, get_wiki_stars, get_wiki_attachments, add_wiki_attachments, get_wiki_attachment, delete_wiki_attachment, get_wiki_shared_files, link_wiki_shared_files, unlink_wiki_shared_file |
+| Git / Pull request | get_git_repositories, get_git_repository, get_pull_requests, get_pull_request, add_pull_request, update_pull_request, get_pull_request_comments, add_pull_request_comment, count_pull_requests, count_pull_request_comments, update_pull_request_comment, get_pull_request_attachments, get_pull_request_attachment, delete_pull_request_attachment |
 | Notification | get_notifications, get_notifications_count, reset_unread_notification_count, mark_notification_as_read |
+| Watching | get_watchings, get_watchings_count, get_watching, add_watching, update_watching, delete_watching, mark_watching_as_read |
+| Star | add_star, delete_star |
+| Webhook | get_webhooks, get_webhook, add_webhook, update_webhook, delete_webhook |
 
 `add_*` / `update_*` / `delete_*` は書き込み系です。`readOnly: true` を設定したスペースに対してこれらを呼ぶと、Backlog APIへリクエストを送る前に拒否されます。`list_spaces` で各スペースの `readOnly` 状態を確認できます。
+
+各ツールのパラメータは [Backlog API v2 の公式ドキュメント](https://developer.nulab.com/docs/backlog/) に合わせています。管理者などの権限が必要なツールは、ツールの説明にその旨を書いています。
+
+- **公式ドキュメントに載っていないもの**: `add_user` / `update_user` / `delete_user`、`add_team` / `update_team` / `delete_team`、`update_pull_request` の `statusId` は、現在の公式ドキュメントにありません。既存の利用者のために残しており、ツールの説明にもその旨を書いています。
+- **Wiki**: 2026-07-14 以降、新しいスペースでは Wiki が使えず、新しいプロジェクトでも既定で無効です。新しく使う場合は Document 系のツールを使ってください。
+- **Document**: Backlog に Document の更新 API がまだ無いため、作成・取得・削除・タグの付け外しだけに対応しています。
 
 ## セキュリティ
 
@@ -578,6 +600,39 @@ npm run dev
 `wrangler dev` は KV をローカルでエミュレートするため、実際の
 Cloudflare リソースには触れません。
 
+### デプロイせずにツールを確かめる (OAuth なし)
+
+ツールの動作だけを確かめたいときは、OAuth / Cloudflare Access / `wrangler` を通さずに、
+本番と同じツール群 (`src/core/create-server.ts`) を手元の Node.js で動かせます。
+クラウドのリソースは使わないので課金は発生せず、通信先は Backlog API だけです。
+
+設定は次のどれかで渡します (上ほど優先)。API キーはリポジトリに置かないでください。
+
+- 環境変数 `BACKLOG_SPACES_CONFIG` (本番と同じ JSON)
+- 環境変数 `BACKLOG_DOMAIN` と `BACKLOG_API_KEY` (単一スペース。`BACKLOG_READ_ONLY=true` で読み取り専用)
+- `.dev.vars` の `BACKLOG_SPACES_CONFIG`
+
+**スモークテスト**: 主なツールを実際のスペースに対して呼び、OK / NG / WARN / SKIP を表示します。
+
+```bash
+export BACKLOG_DOMAIN=your-space.backlog.com BACKLOG_API_KEY=xxxx
+npm run smoke -- --project TEST            # 読み取りだけ
+npm run smoke -- --project TEST --write    # Document・課題・関連課題の作成と削除まで
+```
+
+`--write` はテスト用のプロジェクトで実行してください。作ったものは最後に削除します
+(`--keep` で残す)。削除は管理者権限が必要なものが多く、権限がなければ WARN になるので、
+そのときは画面から削除してください。応答の中身を見たいときは `--verbose` を付けます。
+
+**stdio サーバ**: 同じツール群を stdio の MCP サーバとして起動し、Claude Code や
+MCP Inspector から 1 本ずつ呼んで確かめられます。
+
+```bash
+claude mcp add backlog-local -e BACKLOG_DOMAIN=your-space.backlog.com -e BACKLOG_API_KEY=xxxx \
+  -- npm --prefix "$PWD" run -s local:stdio
+npx @modelcontextprotocol/inspector npm run -s local:stdio
+```
+
 ### 疎通確認
 
 OAuth から MCP ツール実行までを一括で確認できます。
@@ -635,6 +690,7 @@ npm test             # 下記のテストをまとめて実行
 | `npm run test:client-spaces` | クライアントが宣言したスペースと、ドメイン許可リストが SSRF を止めること |
 
 いずれも外部サービスに接続せず、DynamoDB・Backlog・上流 IdP はスタブに差し替えて動きます。
+ツールが実際の Backlog で動くかどうかは、[スモークテスト](#デプロイせずにツールを確かめる-oauth-なし) (`npm run smoke`) で確かめてください。
 
 ### 設定ファイル
 

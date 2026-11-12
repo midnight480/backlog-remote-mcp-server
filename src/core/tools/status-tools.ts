@@ -45,7 +45,7 @@ export function registerStatusTools(server: McpServer, config: BacklogSpacesConf
 
 	server.tool(
 		"add_project_status",
-		"Adds a status to a project.",
+		"Adds a status to a project. Up to 8 custom statuses can be created in addition to the 4 default ones. Requires the space Administrator role.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
@@ -65,7 +65,7 @@ export function registerStatusTools(server: McpServer, config: BacklogSpacesConf
 
 	server.tool(
 		"update_project_status",
-		"Updates a status in a project.",
+		"Updates a status in a project. Requires the space Administrator role.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
@@ -90,7 +90,7 @@ export function registerStatusTools(server: McpServer, config: BacklogSpacesConf
 
 	server.tool(
 		"delete_project_status",
-		"Deletes a status. Issues in this status are moved to substituteStatusId.",
+		"Deletes a status. Issues in this status are moved to substituteStatusId. Requires the space Administrator role.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
@@ -114,13 +114,15 @@ export function registerStatusTools(server: McpServer, config: BacklogSpacesConf
 
 	server.tool(
 		"update_project_status_order",
-		"Reorders the statuses of a project. Pass every status ID in the order you want.",
+		"Reorders the statuses of a project. Pass every status ID of the project in the order you want. " +
+			"Restrictions: \"Open\" must be first, \"Closed\" must be last, and \"In Progress\" must come before \"Resolved\". " +
+			"Requires the space Administrator role.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
 			statusId: z
 				.array(z.number())
-				.describe("All status IDs of the project, in the desired display order."),
+				.describe("All status IDs of the project, in the desired display order (sent as statusId[])."),
 		},
 		async ({ space: spaceName, projectIdOrKey, statusId }) => {
 			const spaceConfig = resolveSpace(config, spaceName);

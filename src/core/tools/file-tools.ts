@@ -73,9 +73,9 @@ export function registerFileTools(server: McpServer, config: BacklogSpacesConfig
 				.string()
 				.optional()
 				.describe("Directory path inside the shared file tree. Empty or omitted means the root."),
-			order: z.enum(["asc", "desc"]).optional().describe("Sort order."),
-			offset: z.number().min(0).optional().describe("Offset for pagination."),
-			count: z.number().min(1).max(1000).optional().describe("Number of results (1-1000)."),
+			order: z.enum(["asc", "desc"]).optional().describe("Sort order. Defaults to desc."),
+			offset: z.number().int().min(0).optional().describe("Offset for pagination."),
+			count: z.number().int().min(1).max(100).optional().describe("Number of results (1-100, default 20)."),
 		},
 		async ({ space: spaceName, projectIdOrKey, path, order, offset, count }) => {
 			const spaceConfig = resolveSpace(config, spaceName);
@@ -118,7 +118,7 @@ export function registerFileTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"get_project_disk_usage",
-		"Returns the disk usage of a project.",
+		"Returns the disk usage of a project. Requires the space Administrator role.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			projectIdOrKey: z.string().describe("Project ID or project key."),
@@ -135,7 +135,9 @@ export function registerFileTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"post_attachment",
-		"Uploads a file and returns an attachment ID, which can then be passed to add_issue, update_issue or add_wiki as attachmentId.",
+		"Uploads a file (POST /space/attachment, multipart/form-data) and returns an attachment ID, " +
+			"which can then be passed as attachmentId to add_issue, update_issue, add_issue_comment or add_wiki. " +
+			"An attachment not attached to anything within an hour is deleted.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			filename: z.string().describe("File name including extension."),
@@ -195,7 +197,7 @@ export function registerFileTools(server: McpServer, config: BacklogSpacesConfig
 
 	server.tool(
 		"delete_issue_attachment",
-		"Deletes a file attached to an issue.",
+		"Deletes a file attached to an issue. Not available to users restricted to 'add issue only'.",
 		{
 			space: z.string().optional().describe("Space name. Uses default if omitted."),
 			issueIdOrKey: z.string().describe("Issue ID or issue key."),
